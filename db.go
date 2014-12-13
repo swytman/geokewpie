@@ -18,7 +18,7 @@ func db_connect() *gorm.DB {
 	return &db
 }
 
-func init_database(pdb **gorm.DB) {
+func init_database(pdb gorm.DB) {
 	err := pdb.CreateTable(&Location{})
 	if err != nil {
 		fmt.Printf("Create table error -->%v\n", err)
