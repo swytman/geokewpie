@@ -35,7 +35,7 @@ func postLocationsHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func locationsHandler(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	switch r.Method {
 	case "PUT":
 		postLocationsHandler(w, r)
