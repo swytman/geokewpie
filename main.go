@@ -66,5 +66,5 @@ func main() {
 		Methods("GET")
 
 	http.Handle("/", r)
-	log.Fatal(http.ListenAndServeTLS(":8080", "cert.pem", "key.pem", nil))
+	log.Fatal(http.ListenAndServeTLS(":8080", "./cert.pem", "./key.pem", nil))
 }
