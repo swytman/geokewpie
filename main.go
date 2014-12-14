@@ -4,6 +4,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/gorilla/mux"
 	"github.com/jinzhu/gorm"
 	"io/ioutil"
 	"log"
@@ -17,11 +18,12 @@ func getLocationsHandler(w http.ResponseWriter, r *http.Request) {
 	fmt.Printf("GET /locations \r\n")
 	response, _ := getLocations()
 	fmt.Fprintf(w, string(response))
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 }
 
 func postLocationsHandler(w http.ResponseWriter, r *http.Request) {
 	body, err := ioutil.ReadAll(r.Body)
-	fmt.Printf("PUT /locations " + string(body) + "\r\n")
+	fmt.Printf("POST /locations " + string(body) + "\r\n")
 	if err != nil {
 		panic("error body read!")
 	}
@@ -31,20 +33,8 @@ func postLocationsHandler(w http.ResponseWriter, r *http.Request) {
 		panic("error decoding")
 	}
 	createOrUpdateLocation(&tmp_loc)
-	w.WriteHeader(200)
-}
-
-func locationsHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	switch r.Method {
-	case "PUT":
-		postLocationsHandler(w, r)
-		return
-	case "GET":
-		getLocationsHandler(w, r)
-		return
-	}
-
+	w.WriteHeader(200)
 }
 
 func createOrUpdateLocation(loc *Location) {
@@ -68,7 +58,13 @@ func getLocations() ([]byte, error) {
 
 func main() {
 	db = db_connect()
+	r := mux.NewRouter()
 	//init_database(&db)
-	http.HandleFunc("/locations/", locationsHandler)
-	log.Fatal(http.ListenAndServe(":8080", nil))
+	r.HandleFunc("/locations/", postLocationsHandler).
+		Methods("POST")
+	r.HandleFunc("/locations/", getLocationsHandler).
+		Methods("GET")
+
+	http.Handle("/", r)
+	log.Fatal(http.ListenAndServeTLS(":8080", "cert.pem", "key.pem", nil))
 }
