@@ -60,9 +60,9 @@ func main() {
 	db = db_connect()
 	r := mux.NewRouter()
 	//init_database(&db)
-	r.HandleFunc("/locations/", postLocationsHandler).
+	r.HandleFunc("/locations", postLocationsHandler).
 		Methods("POST")
-	r.HandleFunc("/locations/", getLocationsHandler).
+	r.HandleFunc("/locations", getLocationsHandler).
 		Methods("GET")
 
 	http.Handle("/", r)
