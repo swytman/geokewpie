@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"gopkg.in/yaml.v2"
 	"io/ioutil"
 )
@@ -19,6 +20,7 @@ type Db struct {
 
 func load_config(filename string) *Config {
 	var config Config
+	fmt.Printf("Config loading..  \r\n")
 	source, err := ioutil.ReadFile(filename)
 	if err != nil {
 		panic(err)

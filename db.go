@@ -9,7 +9,7 @@ import (
 )
 
 type Location struct {
-	Id        int64     `json:"id"`
+	Id        int64     `gorm:"primary_key:yes"`
 	UserId    int64     `json:"user_id"`
 	Latitude  float32   `json:"latitude"`
 	Longitude float32   `json:"longitude"`
@@ -18,7 +18,7 @@ type Location struct {
 }
 
 type User struct {
-	Id           int64     `json:"id"`
+	Id           int64     `gorm:"primary_key:yes"`
 	Login        string    `json:"login"`
 	Email        string    `json:"email"`
 	AuthToken    string    `json:"auth_token"`
@@ -29,7 +29,7 @@ type User struct {
 }
 
 type Subscription struct {
-	Id          int64     `json:"id"`
+	Id          int64     `gorm:"primary_key:yes"`
 	FollowerId  int64     `json:"follower_id"`
 	FollowingId int64     `json:"following_id"`
 	Status      string    `json:"string"`
@@ -78,30 +78,108 @@ func userEmailExists(email string) bool {
 	}
 }
 
-func createUser(email string, login string, password string) string {
-
-	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(password), 10)
+func createHash(source_string string) string {
+	result, err := bcrypt.GenerateFromPassword([]byte(source_string), 10)
 	if err != nil {
 		panic(err)
 	}
+	return string(result)
+}
+
+func createUser(email, login, password string) string {
+	hashedPassword := createHash(password)
 	tokenString := time.Now().Format("200601021504051234") + "ololo"
-	authToken, err := bcrypt.GenerateFromPassword([]byte(tokenString+login), 4)
-	refreshToken, err := bcrypt.GenerateFromPassword([]byte(tokenString+email), 4)
+	authToken := createHash(tokenString + login)
+	refreshToken := createHash(tokenString + email)
+	hashedAuthToken := createHash(authToken)
+	hashedRefreshToken := createHash(refreshToken)
 	user := User{
 		Email:        email,
 		Login:        login,
-		Password:     string(hashedPassword),
-		AuthToken:    string(authToken),
-		RefreshToken: string(refreshToken),
+		Password:     hashedPassword,
+		AuthToken:    hashedAuthToken,
+		RefreshToken: hashedRefreshToken,
 		CreatedAt:    time.Now(),
 		UpdatedAt:    time.Now(),
 	}
 	db.Save(&user)
-	if err != nil {
-		panic(err)
-	}
 	response := fmt.Sprintf("{\"auth_token\": \"%s\",\"refresh_token\": \"%s\"}",
-		string(authToken), string(refreshToken))
-
+		authToken, refreshToken)
 	return response
+}
+
+func refreshToken(email, token, method string) (string, string) {
+	user := authUser(email, token, method)
+	if user.Email == email {
+		tokenString := time.Now().Format("200601021504051234") + "ololo"
+		authToken := createHash(tokenString + email)
+		refreshToken := createHash(tokenString)
+		hashedAuthToken := createHash(authToken)
+		hashedRefreshToken := createHash(refreshToken)
+		user.AuthToken = hashedAuthToken
+		user.RefreshToken = hashedRefreshToken
+		user.UpdatedAt = time.Now()
+		db.Save(user)
+		response := fmt.Sprintf("{\"auth_token\": \"%s\",\"refresh_token\": \"%s\"}",
+			authToken, refreshToken)
+		return response, ""
+	} else {
+		response := fmt.Sprintf("{\"error\": \"Wrong email or %s\"}", method)
+		return response, "error"
+	}
+}
+
+func createSubscription(follower_id int64, following_login string) (string, string) {
+	var user User
+	db.Where("login = ?", following_login).First(&user)
+	if user.Login == "" || user.Login != following_login {
+		response := fmt.Sprintf("{\"error\": \"User not found\"}")
+		return response, "error"
+	}
+	if user.Id == follower_id {
+		response := fmt.Sprintf("{\"error\": \"Following to self\"}")
+		return response, "error"
+	}
+
+	var subs Subscription
+	var count int
+	db.Where("follower_id = ? and following_id = ?", int64(follower_id), user.Id).
+		First(&subs).Count(&count)
+	if count != 0 {
+		response := fmt.Sprintf("{\"error\": \"Subscription exists\"}")
+		return response, "error"
+	}
+
+	subscription := Subscription{
+		FollowerId:  int64(follower_id),
+		FollowingId: user.Id,
+		Status:      "pending",
+		CreatedAt:   time.Now(),
+		UpdatedAt:   time.Now(),
+	}
+	db.Save(&subscription)
+	return "", ""
+
+}
+
+func authUser(email string, token string, method string) *User {
+	var user User
+	var dbtoken string
+	db.Where("email = ?", email).First(&user)
+
+	switch method {
+	case "refresh_token":
+		dbtoken = user.RefreshToken
+	case "auth_token":
+		dbtoken = user.AuthToken
+	case "password":
+		dbtoken = user.Password
+	}
+	err := bcrypt.CompareHashAndPassword([]byte(dbtoken), []byte(token))
+	if err == nil {
+		return &user
+	} else {
+		return &User{}
+	}
+
 }
