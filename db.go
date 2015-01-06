@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"github.com/jinzhu/gorm"
 	_ "github.com/lib/pq"
@@ -129,7 +130,7 @@ func refreshToken(email, token, method string) (string, string) {
 	}
 }
 
-func createSubscription(follower_id int64, following_login string) (string, string) {
+func postFollowings(follower_id int64, following_login string) (string, string) {
 	var user User
 	db.Where("login = ?", following_login).First(&user)
 	if user.Login == "" || user.Login != following_login {
@@ -160,6 +161,146 @@ func createSubscription(follower_id int64, following_login string) (string, stri
 	db.Save(&subscription)
 	return "", ""
 
+}
+
+func getFollowers(user_id int64) (string, string) {
+	type Result struct {
+		Login  string `json:"login"`
+		Status string `json:"status"`
+	}
+	var res []Result
+	db.Table("subscriptions").
+		Select("users.login, subscriptions.status").
+		Joins("left join users on subscriptions.follower_id = users.id").
+		Where("following_id = ?", user_id).
+		Scan(&res)
+	r, _ := json.Marshal(res)
+	if len(res) == 0 {
+		response := fmt.Sprintf("{\"error\": \"No followers\"")
+		return response, "error"
+	}
+	return string(r), ""
+}
+
+func getFollowings(user_id int64) (string, string) {
+	type Result struct {
+		Login  string `json:"login"`
+		Status string `json:"status"`
+	}
+	var res []Result
+	db.Table("subscriptions").
+		Select("users.login, subscriptions.status").
+		Joins("left join users on subscriptions.following_id = users.id").
+		Where("follower_id = ?", user_id).
+		Scan(&res)
+	r, _ := json.Marshal(res)
+	if len(res) == 0 {
+		response := fmt.Sprintf("{\"error\": \"No followings\"}")
+		return response, "error"
+	}
+	return string(r), ""
+}
+
+func postFollowers(user_id int64, login string) (string, string) {
+	var sub Subscription
+	db.Table("subscriptions").
+		Select("subscriptions.*").
+		Joins("left join users on subscriptions.follower_id = users.id").
+		Where("following_id = ? AND status = ? AND users.login = ?", user_id, "pending", login).
+		First(&sub)
+	if sub.Id == 0 {
+		response := fmt.Sprintf("{\"error\": \"No followers with this login\"}")
+		return response, "error"
+	}
+	if sub.Id != 0 {
+		db.Model(&sub).Update("status", "active")
+		return "", ""
+	}
+	return "", ""
+}
+
+func deleteFollowers(user_id int64, login string) (string, string) {
+	var sub Subscription
+	db.Table("subscriptions").
+		Select("subscriptions.*").
+		Joins("left join users on subscriptions.follower_id = users.id").
+		Where("following_id = ? AND users.login = ?", user_id, login).
+		First(&sub)
+	if sub.Id == 0 {
+		response := fmt.Sprintf("{\"error\": \"No followers with this login\"}")
+		return response, "error"
+	}
+	if sub.Id != 0 {
+		db.Delete(&sub)
+		return "", ""
+	}
+	return "", ""
+}
+
+func deleteFollowings(user_id int64, login string) (string, string) {
+	var sub Subscription
+	db.Table("subscriptions").
+		Select("subscriptions.*").
+		Joins("left join users on subscriptions.following_id = users.id").
+		Where("follower_id = ? AND users.login = ?", user_id, login).
+		First(&sub)
+	if sub.Id == 0 {
+		response := fmt.Sprintf("{\"error\": \"No followings with this login\"}")
+		return response, "error"
+	}
+	if sub.Id != 0 {
+		db.Delete(&sub)
+		return "", ""
+	}
+	return "", ""
+}
+
+func postLocations(user_id int64, lat float32, lon float32) (string, string) {
+	var result Location
+	db.Where("user_id = ?", user_id).First(&result)
+	if result.UserId != user_id {
+		loc := Location{
+			UserId:    user_id,
+			Latitude:  lat,
+			Longitude: lon,
+			CreatedAt: time.Now(),
+			UpdatedAt: time.Now(),
+		}
+		db.Save(&loc)
+	} else {
+		db.Model(&result).Updates(Location{Latitude: lat, Longitude: lon})
+	}
+	return "", ""
+}
+
+func getLocations(user_id int64) (string, string) {
+	type Result struct {
+		Login     string    `json:"login"`
+		Latitude  float32   `json:"latitude"`
+		Longitude float32   `json:"longitude"`
+		UpdatedAt time.Time `json:"updated_at"`
+	}
+	following_ids := getActiveFollowings(user_id)
+	if len(following_ids) == 0 {
+		response := fmt.Sprintf("{\"error\": \"No active followings\"}")
+		return response, "error"
+	}
+	var res []Result
+	db.Table("locations").
+		Select("users.login, locations.latitude, locations.longitude, locations.updated_at").
+		Joins("left join users on locations.user_id = users.id").
+		Where("user_id in (?)", following_ids).
+		Scan(&res)
+	r, _ := json.Marshal(res)
+	return string(r), ""
+}
+
+func getActiveFollowings(follower_id int64) []int64 {
+	var ids []int64
+	db.Table("subscriptions").
+		Where("follower_id = ? AND status = ?", follower_id, "active").
+		Pluck("following_id", &ids)
+	return ids
 }
 
 func authUser(email string, token string, method string) *User {

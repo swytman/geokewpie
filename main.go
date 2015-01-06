@@ -9,18 +9,10 @@ import (
 	"io/ioutil"
 	"log"
 	"net/http"
-	"time"
 )
 
 var db *gorm.DB
 var config *Config
-
-func getLocationsHandler(w http.ResponseWriter, r *http.Request) {
-	fmt.Printf("GET /locations \r\n")
-	response, _ := getLocations()
-	fmt.Fprintf(w, string(response))
-	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-}
 
 // create new user
 // требуется написать проверку строк с паролем, почтой и логином
@@ -99,18 +91,13 @@ func refreshUserTokenHandler(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func createSubscriptionsHandler(w http.ResponseWriter, r *http.Request) {
-	type createSubscriptionsBody struct {
-		Login string `json:"login"`
-	}
+func postFollowingsHandler(w http.ResponseWriter, r *http.Request) {
 	fmt.Printf("POST /followings \r\n")
+	vars := mux.Vars(r)
+	login := vars["login"]
 	user := authRequest(r)
 	if user.Email != "" {
-		body, err := ioutil.ReadAll(r.Body)
-		panicErr(err, "Error read request body")
-		var body_struct createSubscriptionsBody
-		err = json.Unmarshal(body, &body_struct)
-		response, strerr := createSubscription(user.Id, body_struct.Login)
+		response, strerr := postFollowings(user.Id, login)
 		if strerr == "" {
 			w.WriteHeader(201)
 		} else {
@@ -123,62 +110,172 @@ func createSubscriptionsHandler(w http.ResponseWriter, r *http.Request) {
 
 }
 
-func postLocationsHandler(w http.ResponseWriter, r *http.Request) {
-	body, err := ioutil.ReadAll(r.Body)
-	fmt.Printf("POST /locations " + string(body) + "\r\n")
-	panicErr(err, "Error read request body")
-
-	var tmp_loc Location
-	err = json.Unmarshal(body, &tmp_loc)
-	panicErr(err, "Error json decoding")
-	createOrUpdateLocation(&tmp_loc)
-	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	w.WriteHeader(200)
-}
-
-func createOrUpdateLocation(loc *Location) {
-	var result Location
-	db.Where("login = ?", loc.UserId).First(&result)
-	if result.UserId != loc.UserId {
-		db.Create(loc)
+func getFollowersHandler(w http.ResponseWriter, r *http.Request) {
+	fmt.Printf("GET /followers \r\n")
+	user := authRequest(r)
+	if user.Email != "" {
+		response, strerr := getFollowers(user.Id)
+		if strerr == "" {
+			w.WriteHeader(200)
+		} else {
+			w.WriteHeader(403)
+		}
+		fmt.Fprintf(w, string(response))
 	} else {
-		result.Latitude = loc.Latitude
-		result.Longitude = loc.Longitude
-		result.UpdatedAt = time.Now()
-		db.Save(&result)
+		w.WriteHeader(401)
 	}
 }
 
-func getLocations() ([]byte, error) {
-	var locs []Location
-	db.Find(&locs)
-	return json.Marshal(locs)
+func getFollowingsHandler(w http.ResponseWriter, r *http.Request) {
+	fmt.Printf("GET /followings \r\n")
+	user := authRequest(r)
+	if user.Email != "" {
+		response, strerr := getFollowings(user.Id)
+		if strerr == "" {
+			w.WriteHeader(200)
+		} else {
+			w.WriteHeader(403)
+		}
+		fmt.Fprintf(w, string(response))
+	} else {
+		w.WriteHeader(401)
+	}
+}
+
+func postFollowersHandler(w http.ResponseWriter, r *http.Request) {
+	fmt.Printf("POST /follower/{login} \r\n")
+	user := authRequest(r)
+	vars := mux.Vars(r)
+	login := vars["login"]
+	if user.Email != "" {
+		response, strerr := postFollowers(user.Id, login)
+		if strerr == "" {
+			w.WriteHeader(200)
+		} else {
+			w.WriteHeader(403)
+		}
+		fmt.Fprintf(w, string(response))
+	} else {
+		w.WriteHeader(401)
+	}
+}
+
+func deleteFollowersHandler(w http.ResponseWriter, r *http.Request) {
+	fmt.Printf("POST /follower/{login} \r\n")
+	user := authRequest(r)
+	vars := mux.Vars(r)
+	login := vars["login"]
+	if user.Email != "" {
+		response, strerr := deleteFollowers(user.Id, login)
+		if strerr == "" {
+			w.WriteHeader(200)
+		} else {
+			w.WriteHeader(403)
+		}
+		fmt.Fprintf(w, string(response))
+	} else {
+		w.WriteHeader(401)
+	}
+}
+
+func deleteFollowingsHandler(w http.ResponseWriter, r *http.Request) {
+	fmt.Printf("POST /followings/{login} \r\n")
+	user := authRequest(r)
+	vars := mux.Vars(r)
+	login := vars["login"]
+	if user.Email != "" {
+		response, strerr := deleteFollowings(user.Id, login)
+		if strerr == "" {
+			w.WriteHeader(200)
+		} else {
+			w.WriteHeader(403)
+		}
+		fmt.Fprintf(w, string(response))
+	} else {
+		w.WriteHeader(401)
+	}
+}
+
+func postLocationsHandler(w http.ResponseWriter, r *http.Request) {
+	type Body struct {
+		Latitude  float32 `json:"latitude"`
+		Longitude float32 `json:"longitude"`
+	}
+	fmt.Printf("POST /locations \r\n")
+	user := authRequest(r)
+	if user.Email != "" {
+		body, err := ioutil.ReadAll(r.Body)
+		panicErr(err, "Error read request body")
+		var body_struct Body
+		err = json.Unmarshal(body, &body_struct)
+		response, strerr := postLocations(user.Id, body_struct.Latitude, body_struct.Longitude)
+		if strerr == "" {
+			w.WriteHeader(200)
+		} else {
+			w.WriteHeader(403)
+		}
+		fmt.Fprintf(w, string(response))
+	} else {
+		w.WriteHeader(401)
+	}
+}
+
+func getLocationsHandler(w http.ResponseWriter, r *http.Request) {
+	fmt.Printf("GET /locations \r\n")
+	user := authRequest(r)
+	if user.Email != "" {
+		response, strerr := getLocations(user.Id)
+		if strerr == "" {
+			w.WriteHeader(200)
+		} else {
+			w.WriteHeader(403)
+		}
+		fmt.Fprintf(w, string(response))
+	} else {
+		w.WriteHeader(401)
+	}
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 }
 
 func main() {
 	config = load_config("./config.yaml")
-
 	db = db_connect()
 	//init_database(db)
 	r := mux.NewRouter()
-
-	// создание нового пользователя
-	r.HandleFunc("/users", createUserHandler).
-		Methods("POST")
-	// проверка существования пользователя
-	r.HandleFunc("/user", checkUserHandler).
-		Methods("GET")
-	r.HandleFunc("/user/token_refresh", refreshUserTokenHandler).
-		Methods("POST")
-	r.HandleFunc("/followings", createSubscriptionsHandler).
-		Methods("POST")
-	//r.HandleFunc("/followings", getSubscriptionsHandler).
-	//	Methods("GET")
-
-	r.HandleFunc("/locations", postLocationsHandler).
-		Methods("POST")
+	// 1. Получить координаты
 	r.HandleFunc("/locations", getLocationsHandler).
 		Methods("GET")
+	// 2. Обновить свои координаты
+	r.HandleFunc("/locations", postLocationsHandler).
+		Methods("POST")
+	// 3. Создание нового пользователя
+	r.HandleFunc("/users", createUserHandler).
+		Methods("POST")
+	// 4. Проверка существования пользователя
+	r.HandleFunc("/user", checkUserHandler).
+		Methods("GET")
+	// 5. Обновление токена
+	r.HandleFunc("/user/token_refresh", refreshUserTokenHandler).
+		Methods("POST")
+	// 6. Создание новой подписки
+	r.HandleFunc("/followings/{login}", postFollowingsHandler).
+		Methods("POST")
+	// 7. Удалить или отменить свою подписку
+	r.HandleFunc("/followings/{login}", deleteFollowingsHandler).
+		Methods("DELETE")
+	// 8. Получить мои подписки
+	r.HandleFunc("/followings", getFollowingsHandler).
+		Methods("GET")
+	// 9. Подтвердить подписчика
+	r.HandleFunc("/followers/{login}", postFollowersHandler).
+		Methods("POST")
+	// 10. Удалить подписчика
+	r.HandleFunc("/followers/{login}", deleteFollowersHandler).
+		Methods("DELETE")
+	// 11. Получить список подписчиков
+	r.HandleFunc("/followers", getFollowersHandler).
+		Methods("GET")
+
 	r.Headers("X-Requested-With", "XMLHttpRequest")
 	http.Handle("/", r)
 	log.Fatal(http.ListenAndServeTLS(":8080", "./cert.pem", "./key.pem", nil))
