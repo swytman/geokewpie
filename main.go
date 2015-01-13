@@ -105,6 +105,7 @@ func postFollowingsHandler(w http.ResponseWriter, r *http.Request) {
 		}
 		fmt.Fprintf(w, string(response))
 	} else {
+		w.Header().Set("WWW-Authenticate", "Bearer realm=\"geokewpie\"")
 		w.WriteHeader(401)
 	}
 
@@ -122,6 +123,7 @@ func getFollowersHandler(w http.ResponseWriter, r *http.Request) {
 		}
 		fmt.Fprintf(w, string(response))
 	} else {
+		w.Header().Set("WWW-Authenticate", "Bearer realm=\"geokewpie\"")
 		w.WriteHeader(401)
 	}
 }
@@ -138,6 +140,7 @@ func getFollowingsHandler(w http.ResponseWriter, r *http.Request) {
 		}
 		fmt.Fprintf(w, string(response))
 	} else {
+		w.Header().Set("WWW-Authenticate", "Bearer realm=\"geokewpie\"")
 		w.WriteHeader(401)
 	}
 }
@@ -156,6 +159,7 @@ func postFollowersHandler(w http.ResponseWriter, r *http.Request) {
 		}
 		fmt.Fprintf(w, string(response))
 	} else {
+		w.Header().Set("WWW-Authenticate", "Bearer realm=\"geokewpie\"")
 		w.WriteHeader(401)
 	}
 }
@@ -174,6 +178,7 @@ func deleteFollowersHandler(w http.ResponseWriter, r *http.Request) {
 		}
 		fmt.Fprintf(w, string(response))
 	} else {
+		w.Header().Set("WWW-Authenticate", "Bearer realm=\"geokewpie\"")
 		w.WriteHeader(401)
 	}
 }
@@ -192,6 +197,7 @@ func deleteFollowingsHandler(w http.ResponseWriter, r *http.Request) {
 		}
 		fmt.Fprintf(w, string(response))
 	} else {
+		w.Header().Set("WWW-Authenticate", "Bearer realm=\"geokewpie\"")
 		w.WriteHeader(401)
 	}
 }
@@ -216,6 +222,7 @@ func postLocationsHandler(w http.ResponseWriter, r *http.Request) {
 		}
 		fmt.Fprintf(w, string(response))
 	} else {
+		w.Header().Set("WWW-Authenticate", "Bearer realm=\"geokewpie\"")
 		w.WriteHeader(401)
 	}
 }
@@ -232,6 +239,7 @@ func getLocationsHandler(w http.ResponseWriter, r *http.Request) {
 		}
 		fmt.Fprintf(w, string(response))
 	} else {
+		w.Header().Set("WWW-Authenticate", "Bearer realm=\"geokewpie\"")
 		w.WriteHeader(401)
 	}
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
