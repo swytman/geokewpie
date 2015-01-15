@@ -268,7 +268,9 @@ func postLocations(user_id int64, lat float32, lon float32) (string, string) {
 		}
 		db.Save(&loc)
 	} else {
-		db.Model(&result).Updates(Location{Latitude: lat, Longitude: lon})
+		result.Latitude = lat
+		result.Longitude = lon
+		db.Save(&result)
 	}
 	return "", ""
 }
