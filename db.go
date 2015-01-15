@@ -270,6 +270,7 @@ func postLocations(user_id int64, lat float32, lon float32) (string, string) {
 	} else {
 		result.Latitude = lat
 		result.Longitude = lon
+		result.UpdatedAt = time.Now()
 		db.Save(&result)
 	}
 	return "", ""
