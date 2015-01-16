@@ -280,7 +280,7 @@ func getLogsHandler(w http.ResponseWriter, r *http.Request) {
 	logs := getLogs()
 	h, _ := template.ParseFiles("./templates/logs/header.html")
 	h.Execute(w, nil)
-	location, _ := time.LoadLocation("Europe/Moscow")
+	location, _ := time.LoadLocation("Europe/Kaliningrad")
 	for _, item := range logs {
 		tmp := RequestLogView{}
 		tmp.Url = item.Url

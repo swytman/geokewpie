@@ -357,7 +357,7 @@ func initRequestLog(code, url, host, method string) {
 
 func getLogs() []RequestLog {
 	var logs []RequestLog
-	db.Order("created_at desc").Find(&logs)
+	db.Order("created_at desc").Limit(200).Find(&logs)
 	return logs
 
 }
