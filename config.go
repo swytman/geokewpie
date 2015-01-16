@@ -8,6 +8,7 @@ import (
 
 type Config struct {
 	Db
+	Log
 }
 
 type Db struct {
@@ -16,6 +17,10 @@ type Db struct {
 	User     string
 	Password string
 	Dbname   string
+}
+
+type Log struct {
+	Level string
 }
 
 func load_config(filename string) *Config {

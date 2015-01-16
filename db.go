@@ -9,6 +9,20 @@ import (
 	"time"
 )
 
+type RequestLog struct {
+	Id           int64     `gorm:"primary_key:yes"`
+	Url          string    `json:"url"`
+	Host         string    `json:"host"`
+	Login        string    `json:"login"`
+	Code         string    `json:"code"`
+	Method       string    `json:"method"`
+	RequestBody  string    `sql:"type:text;json:"request_body"`
+	ResponseCode int       `json:"response_body"`
+	ResponseBody string    `sql:"type:text;json:"response_body"`
+	ActionsLog   string    `sql:"type:text;json:"actions_log"`
+	CreatedAt    time.Time `json:"created_at"`
+}
+
 type Location struct {
 	Id        int64     `gorm:"primary_key:yes"`
 	UserId    int64     `json:"user_id"`
@@ -52,7 +66,7 @@ func db_connect() *gorm.DB {
 }
 
 func init_database(pdb *gorm.DB) {
-	err := pdb.AutoMigrate(&Location{}, &User{}, &Subscription{})
+	err := pdb.AutoMigrate(&Location{}, &User{}, &Subscription{}, &RequestLog{})
 	if err != nil {
 		fmt.Printf("Create table error -->%v\n", err)
 		panic("Create table error")
@@ -325,5 +339,25 @@ func authUser(email string, token string, method string) *User {
 	} else {
 		return &User{}
 	}
+
+}
+
+func createRequestLog() {
+	reqlog.CreatedAt = time.Now()
+	db.Save(&reqlog)
+}
+
+func initRequestLog(code, url, host, method string) {
+	reqlog = RequestLog{}
+	reqlog.Code = code
+	reqlog.Url = url
+	reqlog.Host = host
+	reqlog.Method = method
+}
+
+func getLogs() []RequestLog {
+	var logs []RequestLog
+	db.Order("created_at desc").Find(&logs)
+	return logs
 
 }

@@ -6,13 +6,16 @@ import (
 	"fmt"
 	"github.com/gorilla/mux"
 	"github.com/jinzhu/gorm"
+	"html/template"
 	"io/ioutil"
 	"log"
 	"net/http"
+	"time"
 )
 
 var db *gorm.DB
 var config *Config
+var reqlog RequestLog
 
 // create new user
 // требуется написать проверку строк с паролем, почтой и логином
@@ -207,42 +210,94 @@ func postLocationsHandler(w http.ResponseWriter, r *http.Request) {
 		Latitude  float32 `json:"latitude"`
 		Longitude float32 `json:"longitude"`
 	}
+	initRequestLog("POSTLOC", r.URL.Path+"?"+r.URL.RawQuery, r.Host, r.Method)
 	fmt.Printf("POST /locations \r\n")
+	body, err := ioutil.ReadAll(r.Body)
+	reqlog.RequestBody = string(body)
 	user := authRequest(r)
 	if user.Email != "" {
-		body, err := ioutil.ReadAll(r.Body)
+		reqlog.Login = user.Login
 		panicErr(err, "Error read request body")
 		var body_struct Body
 		err = json.Unmarshal(body, &body_struct)
-		response, strerr := postLocations(user.Id, body_struct.Latitude, body_struct.Longitude)
+		var strerr string
+		reqlog.ResponseBody, strerr = postLocations(user.Id, body_struct.Latitude, body_struct.Longitude)
 		if strerr == "" {
-			w.WriteHeader(200)
+			reqlog.ResponseCode = 200
 		} else {
-			w.WriteHeader(403)
+			reqlog.ResponseCode = 403
+			reqlog.ActionsLog = strerr
 		}
-		fmt.Fprintf(w, string(response))
+		fmt.Fprintf(w, reqlog.ResponseBody)
 	} else {
 		w.Header().Set("WWW-Authenticate", "Bearer realm=\"geokewpie\"")
-		w.WriteHeader(401)
+		reqlog.ResponseCode = 401
 	}
+	w.WriteHeader(reqlog.ResponseCode)
+	createRequestLog()
 }
 
 func getLocationsHandler(w http.ResponseWriter, r *http.Request) {
+	initRequestLog("GETLOC", r.URL.Path+"?"+r.URL.RawQuery, r.Host, r.Method)
 	fmt.Printf("GET /locations \r\n")
 	user := authRequest(r)
 	if user.Email != "" {
-		response, strerr := getLocations(user.Id)
+		reqlog.Login = user.Login
+		var strerr string
+		reqlog.ResponseBody, strerr = getLocations(user.Id)
 		if strerr == "" {
-			w.WriteHeader(200)
+			reqlog.ResponseCode = 200
+
 		} else {
-			w.WriteHeader(403)
+			reqlog.ResponseCode = 403
+			reqlog.ActionsLog = strerr
 		}
-		fmt.Fprintf(w, string(response))
+		fmt.Fprintf(w, reqlog.ResponseBody)
+
 	} else {
 		w.Header().Set("WWW-Authenticate", "Bearer realm=\"geokewpie\"")
-		w.WriteHeader(401)
+		reqlog.ResponseCode = 401
 	}
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.WriteHeader(reqlog.ResponseCode)
+	createRequestLog()
+}
+
+func getLogsHandler(w http.ResponseWriter, r *http.Request) {
+	type RequestLogView struct {
+		Url          string
+		Host         string
+		Login        string
+		Code         string
+		Method       string
+		RequestBody  string
+		ResponseCode int
+		ResponseBody string
+		ActionsLog   string
+		CreatedAt    string
+	}
+	fmt.Printf("GET /logs \r\n")
+	logs := getLogs()
+	h, _ := template.ParseFiles("./templates/logs/header.html")
+	h.Execute(w, nil)
+	location, _ := time.LoadLocation("Europe/Moscow")
+	for _, item := range logs {
+		tmp := RequestLogView{}
+		tmp.Url = item.Url
+		tmp.Host = item.Host
+		tmp.Login = item.Login
+		tmp.Code = item.Code
+		tmp.Method = item.Method
+		tmp.RequestBody = item.RequestBody
+		tmp.ResponseCode = item.ResponseCode
+		tmp.ResponseBody = item.ResponseBody
+		tmp.ActionsLog = item.ActionsLog
+		tmp.CreatedAt = item.CreatedAt.In(location).Format("15:04:05 02-01-2006")
+		t, _ := template.ParseFiles("./templates/logs/index.html")
+
+		t.Execute(w, tmp)
+	}
+
 }
 
 func main() {
@@ -283,8 +338,11 @@ func main() {
 	// 11. Получить список подписчиков
 	r.HandleFunc("/followers", getFollowersHandler).
 		Methods("GET")
+	r.HandleFunc("/logs", getLogsHandler).
+		Methods("GET")
 
 	r.Headers("X-Requested-With", "XMLHttpRequest")
+	//r.PathPrefix("/assets/css/").Handler(http.StripPrefix("/assets/css/", http.FileServer(http.Dir("./assets/css/"))))
 	http.Handle("/", r)
 	log.Fatal(http.ListenAndServeTLS(":8080", "./cert.pem", "./key.pem", nil))
 }
