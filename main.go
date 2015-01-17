@@ -209,6 +209,7 @@ func postLocationsHandler(w http.ResponseWriter, r *http.Request) {
 	type Body struct {
 		Latitude  float32 `json:"latitude"`
 		Longitude float32 `json:"longitude"`
+		Accuracy  float32 `json:"accuracy"`
 	}
 	initRequestLog("POSTLOC", r.URL.Path+"?"+r.URL.RawQuery, r.Host, r.Method)
 	fmt.Printf("POST /locations \r\n")
@@ -221,7 +222,8 @@ func postLocationsHandler(w http.ResponseWriter, r *http.Request) {
 		var body_struct Body
 		err = json.Unmarshal(body, &body_struct)
 		var strerr string
-		reqlog.ResponseBody, strerr = postLocations(user.Id, body_struct.Latitude, body_struct.Longitude)
+		reqlog.ResponseBody, strerr = postLocations(user.Id,
+			body_struct.Latitude, body_struct.Longitude, body_struct.Accuracy)
 		if strerr == "" {
 			reqlog.ResponseCode = 200
 		} else {
@@ -276,8 +278,9 @@ func getLogsHandler(w http.ResponseWriter, r *http.Request) {
 		ActionsLog   string
 		CreatedAt    string
 	}
+	login := r.URL.Query().Get("login")
 	fmt.Printf("GET /logs \r\n")
-	logs := getLogs()
+	logs := getLogs(login)
 	h, _ := template.ParseFiles("./templates/logs/header.html")
 	h.Execute(w, nil)
 	location, _ := time.LoadLocation("Europe/Kaliningrad")

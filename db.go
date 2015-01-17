@@ -28,6 +28,7 @@ type Location struct {
 	UserId    int64     `json:"user_id"`
 	Latitude  float32   `json:"latitude"`
 	Longitude float32   `json:"longitude"`
+	Accuracy  float32   `json:"accuracy"`
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
 }
@@ -269,7 +270,7 @@ func deleteFollowings(user_id int64, login string) (string, string) {
 	return "", ""
 }
 
-func postLocations(user_id int64, lat float32, lon float32) (string, string) {
+func postLocations(user_id int64, lat, lon, acc float32) (string, string) {
 	var result Location
 	db.Where("user_id = ?", user_id).First(&result)
 	if result.UserId != user_id {
@@ -277,6 +278,7 @@ func postLocations(user_id int64, lat float32, lon float32) (string, string) {
 			UserId:    user_id,
 			Latitude:  lat,
 			Longitude: lon,
+			Accuracy:  acc,
 			CreatedAt: time.Now(),
 			UpdatedAt: time.Now(),
 		}
@@ -284,6 +286,7 @@ func postLocations(user_id int64, lat float32, lon float32) (string, string) {
 	} else {
 		result.Latitude = lat
 		result.Longitude = lon
+		result.Accuracy = acc
 		result.UpdatedAt = time.Now()
 		db.Save(&result)
 	}
@@ -295,6 +298,7 @@ func getLocations(user_id int64) (string, string) {
 		Login     string    `json:"login"`
 		Latitude  float32   `json:"latitude"`
 		Longitude float32   `json:"longitude"`
+		Accuracy  float32   `json:"accuracy"`
 		UpdatedAt time.Time `json:"updated_at"`
 	}
 	following_ids := getActiveFollowings(user_id)
@@ -304,7 +308,7 @@ func getLocations(user_id int64) (string, string) {
 	}
 	var res []Result
 	db.Table("locations").
-		Select("users.login, locations.latitude, locations.longitude, locations.updated_at").
+		Select("users.login, locations.latitude, locations.longitude, locations.accuracy, locations.updated_at").
 		Joins("left join users on locations.user_id = users.id").
 		Where("user_id in (?)", following_ids).
 		Scan(&res)
@@ -355,9 +359,14 @@ func initRequestLog(code, url, host, method string) {
 	reqlog.Method = method
 }
 
-func getLogs() []RequestLog {
+func getLogs(login string) []RequestLog {
 	var logs []RequestLog
-	db.Order("created_at desc").Limit(200).Find(&logs)
+	if login == "" {
+		db.Order("created_at desc").Limit(200).Find(&logs)
+	} else {
+		db.Where("login = ?", login).Order("created_at desc").Limit(200).Find(&logs)
+	}
+
 	return logs
 
 }
