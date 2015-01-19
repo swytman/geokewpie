@@ -211,7 +211,7 @@ func postLocationsHandler(w http.ResponseWriter, r *http.Request) {
 		Longitude float32 `json:"longitude"`
 		Accuracy  float32 `json:"accuracy"`
 	}
-	initRequestLog("POSTLOC", r.URL.Path+"?"+r.URL.RawQuery, r.Host, r.Method)
+	initRequestLog("PostLocations", r.URL.Path+"?"+r.URL.RawQuery, r.Host, r.Method)
 	fmt.Printf("POST /locations \r\n")
 	body, err := ioutil.ReadAll(r.Body)
 	reqlog.RequestBody = string(body)
@@ -240,7 +240,7 @@ func postLocationsHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func getLocationsHandler(w http.ResponseWriter, r *http.Request) {
-	initRequestLog("GETLOC", r.URL.Path+"?"+r.URL.RawQuery, r.Host, r.Method)
+	initRequestLog("GetLocations", r.URL.Path+"?"+r.URL.RawQuery, r.Host, r.Method)
 	fmt.Printf("GET /locations \r\n")
 	user := authRequest(r)
 	if user.Email != "" {
@@ -303,6 +303,35 @@ func getLogsHandler(w http.ResponseWriter, r *http.Request) {
 
 }
 
+func findUserByLettersHandler(w http.ResponseWriter, r *http.Request) {
+	initRequestLog("FindUserByLetters", r.URL.Path+"?"+r.URL.RawQuery, r.Host, r.Method)
+	fmt.Printf("GET /uses/{letters} \r\n")
+	user := authRequest(r)
+	if user.Email != "" {
+		vars := mux.Vars(r)
+		letters := vars["letters"]
+		reqlog.Login = user.Login
+		var strerr string
+		reqlog.ResponseBody, strerr = findUserByLetters(letters)
+		if strerr == "" {
+			reqlog.ResponseCode = 200
+
+		} else {
+			reqlog.ResponseCode = 403
+			reqlog.ActionsLog = strerr
+		}
+		fmt.Fprintf(w, reqlog.ResponseBody)
+
+	} else {
+		w.Header().Set("WWW-Authenticate", "Bearer realm=\"geokewpie\"")
+		reqlog.ResponseCode = 401
+	}
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.WriteHeader(reqlog.ResponseCode)
+	createRequestLog()
+
+}
+
 func main() {
 	config = load_config("./config.yaml")
 	db = db_connect()
@@ -320,27 +349,32 @@ func main() {
 	// 4. Проверка существования пользователя
 	r.HandleFunc("/user", checkUserHandler).
 		Methods("GET")
-	// 5. Обновление токена
+	// 5. Поиск пользователя по первым буквам логина
+	r.HandleFunc("/user/{letters}", findUserByLettersHandler).
+		Methods("GET")
+	// 6. Обновление токена
 	r.HandleFunc("/user/token_refresh", refreshUserTokenHandler).
 		Methods("POST")
-	// 6. Создание новой подписки
+	// 7. Создание новой подписки
 	r.HandleFunc("/followings/{login}", postFollowingsHandler).
 		Methods("POST")
-	// 7. Удалить или отменить свою подписку
+	// 8. Удалить или отменить свою подписку
 	r.HandleFunc("/followings/{login}", deleteFollowingsHandler).
 		Methods("DELETE")
-	// 8. Получить мои подписки
+	// 9. Получить мои подписки
 	r.HandleFunc("/followings", getFollowingsHandler).
 		Methods("GET")
-	// 9. Подтвердить подписчика
+	// 10. Подтвердить подписчика
 	r.HandleFunc("/followers/{login}", postFollowersHandler).
 		Methods("POST")
-	// 10. Удалить подписчика
+	// 11. Удалить подписчика
 	r.HandleFunc("/followers/{login}", deleteFollowersHandler).
 		Methods("DELETE")
-	// 11. Получить список подписчиков
+	// 12. Получить список подписчиков
 	r.HandleFunc("/followers", getFollowersHandler).
 		Methods("GET")
+
+	// недокументированные или временные запросы
 	r.HandleFunc("/logs", getLogsHandler).
 		Methods("GET")
 

@@ -84,6 +84,23 @@ func userLoginExists(login string) bool {
 	}
 }
 
+func findUserByLetters(letters string) (string, string) {
+	type Result struct {
+		Login string `json:"login"`
+	}
+	var res []Result
+	fmt.Printf(letters)
+	db.Table("users").
+		Where("login LIKE ?", letters+"%").
+		Scan(&res)
+	r, _ := json.Marshal(res)
+	if len(res) == 0 {
+		response := fmt.Sprintf("[]")
+		return response, ""
+	}
+	return string(r), ""
+}
+
 func userEmailExists(email string) bool {
 	var result User
 	db.Where("email = ?", email).First(&result)
