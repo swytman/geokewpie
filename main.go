@@ -239,6 +239,38 @@ func postLocationsHandler(w http.ResponseWriter, r *http.Request) {
 	createRequestLog()
 }
 
+func updateGcmRegIdHandler(w http.ResponseWriter, r *http.Request) {
+	type Body struct {
+		GcmRegId string `json:"gcm_reg_id"`
+	}
+	initRequestLog("UpdateGcmRegId", r.URL.Path+"?"+r.URL.RawQuery, r.Host, r.Method)
+	fmt.Printf("POST /user/update_gcmregid \r\n")
+	body, err := ioutil.ReadAll(r.Body)
+	reqlog.RequestBody = string(body)
+	user := authRequest(r)
+	if user.Email != "" {
+		reqlog.Login = user.Login
+		panicErr(err, "Error read request body")
+		var body_struct Body
+		err = json.Unmarshal(body, &body_struct)
+		var strerr string
+		reqlog.ResponseBody, strerr = updateGcmRegId(user,
+			body_struct.GcmRegId)
+		if strerr == "" {
+			reqlog.ResponseCode = 200
+		} else {
+			reqlog.ResponseCode = 403
+			reqlog.ActionsLog = strerr
+		}
+		fmt.Fprintf(w, reqlog.ResponseBody)
+	} else {
+		w.Header().Set("WWW-Authenticate", "Bearer realm=\"geokewpie\"")
+		reqlog.ResponseCode = 401
+	}
+	w.WriteHeader(reqlog.ResponseCode)
+	createRequestLog()
+}
+
 func getLocationsHandler(w http.ResponseWriter, r *http.Request) {
 	initRequestLog("GetLocations", r.URL.Path+"?"+r.URL.RawQuery, r.Host, r.Method)
 	fmt.Printf("GET /locations \r\n")
@@ -373,6 +405,9 @@ func main() {
 	// 12. Получить список подписчиков
 	r.HandleFunc("/followers", getFollowersHandler).
 		Methods("GET")
+	// 13. Обновить gcmregid
+	r.HandleFunc("/user/update_gcmregid", updateGcmRegIdHandler).
+		Methods("POST")
 
 	// недокументированные или временные запросы
 	r.HandleFunc("/logs", getLogsHandler).

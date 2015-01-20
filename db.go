@@ -42,6 +42,7 @@ type User struct {
 	Password     string    `json:"password"`
 	CreatedAt    time.Time `json:"created_at"`
 	UpdatedAt    time.Time `json:"updated_at"`
+	GcmRegId     string    `sql:"default:'';json:"gcm_reg_id"; `
 }
 
 type Subscription struct {
@@ -307,6 +308,13 @@ func postLocations(user_id int64, lat, lon, acc float32) (string, string) {
 		result.UpdatedAt = time.Now()
 		db.Save(&result)
 	}
+	return "", ""
+}
+
+func updateGcmRegId(user *User, gcm_reg_id string) (string, string) {
+	user.GcmRegId = gcm_reg_id
+	user.UpdatedAt = time.Now()
+	db.Save(user)
 	return "", ""
 }
 
