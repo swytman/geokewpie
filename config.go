@@ -9,6 +9,7 @@ import (
 type Config struct {
 	Db
 	Log
+	Gcm
 }
 
 type Db struct {
@@ -21,6 +22,11 @@ type Db struct {
 
 type Log struct {
 	Level string
+}
+
+type Gcm struct {
+	ApiKey string
+	Url    string
 }
 
 func load_config(filename string) *Config {

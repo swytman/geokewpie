@@ -205,6 +205,33 @@ func deleteFollowingsHandler(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func updateFollowingsHandler(w http.ResponseWriter, r *http.Request) {
+	initRequestLog("UpdateFollowings", r.URL.Path+"?"+r.URL.RawQuery, r.Host, r.Method)
+	fmt.Printf("GET /followings/update_locations \r\n")
+	user := authRequest(r)
+	if user.Email != "" {
+		content := r.URL.Query().Get("content")
+		reqlog.Login = user.Login
+		var strerr string
+		reqlog.ResponseBody, strerr = updateFollowingsGCM(user, content)
+		if strerr == "" {
+			reqlog.ResponseCode = 200
+
+		} else {
+			reqlog.ResponseCode = 403
+			reqlog.ActionsLog = strerr
+		}
+		fmt.Fprintf(w, reqlog.ResponseBody)
+
+	} else {
+		w.Header().Set("WWW-Authenticate", "Bearer realm=\"geokewpie\"")
+		reqlog.ResponseCode = 401
+	}
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.WriteHeader(reqlog.ResponseCode)
+	createRequestLog()
+}
+
 func postLocationsHandler(w http.ResponseWriter, r *http.Request) {
 	type Body struct {
 		Latitude  float32 `json:"latitude"`
@@ -375,6 +402,8 @@ func main() {
 	// 2. Обновить свои координаты
 	r.HandleFunc("/locations", postLocationsHandler).
 		Methods("POST")
+	// 3. Запрос на обновление координат друзей
+
 	// 3. Создание нового пользователя
 	r.HandleFunc("/users", createUserHandler).
 		Methods("POST")
@@ -393,6 +422,8 @@ func main() {
 	// 8. Удалить или отменить свою подписку
 	r.HandleFunc("/followings/{login}", deleteFollowingsHandler).
 		Methods("DELETE")
+	r.HandleFunc("/followings/update_locations", updateFollowingsHandler).
+		Methods("GET")
 	// 9. Получить мои подписки
 	r.HandleFunc("/followings", getFollowingsHandler).
 		Methods("GET")

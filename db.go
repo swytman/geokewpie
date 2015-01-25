@@ -112,6 +112,12 @@ func userEmailExists(email string) bool {
 	}
 }
 
+func getUserGcmRegId(login string) string {
+	var result User
+	db.Where("login = ?", login).First(&result)
+	return result.GcmRegId
+}
+
 func createHash(source_string string) string {
 	result, err := bcrypt.GenerateFromPassword([]byte(source_string), 10)
 	if err != nil {
