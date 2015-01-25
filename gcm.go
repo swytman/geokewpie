@@ -2,17 +2,27 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"io/ioutil"
 	"net/http"
 )
 
-func sendPush(reg_id, content string) string {
+type GcmRequestBody struct {
+	RegistrationIds []string `json:"registration_ids"`
+	CollapseKey     string   `json:"collapse_key"`
+	Data            GcmData  `json:"data"`
+}
+
+type GcmData struct {
+}
+
+func (r GcmRequestBody) sendPush() string {
 	url := config.Gcm.Url
 	api_key := config.Gcm.ApiKey
 
-	var jsonStr = []byte(`{"registration_ids": [ "` + reg_id + `" ],
-						"data": { "message": "` + content + `"} }`)
+	var jsonStr, _ = json.Marshal(r)
+	fmt.Println(string(jsonStr))
 	req, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonStr))
 	req.Header.Set("Authorization", "key="+api_key)
 	req.Header.Set("Content-Type", "application/json")
@@ -34,6 +44,8 @@ func updateFollowingsGCM(user *User, content string) (string, string) {
 	if user.GcmRegId == "" {
 		return "User have no GcmRegId", "error"
 	}
-	return sendPush(user.GcmRegId, content), ""
-
+	gcmbody := GcmRequestBody{}
+	gcmbody.RegistrationIds = getExpiredFollowingGcmRegIds(user)
+	gcmbody.CollapseKey = "send_locations"
+	return gcmbody.sendPush(), ""
 }

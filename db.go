@@ -332,7 +332,7 @@ func getLocations(user_id int64) (string, string) {
 		Accuracy  float32   `json:"accuracy"`
 		UpdatedAt time.Time `json:"updated_at"`
 	}
-	following_ids := getActiveFollowings(user_id)
+	following_ids := getActiveFollowingIds(user_id)
 	if len(following_ids) == 0 {
 		response := fmt.Sprintf("{\"error\": \"No active followings\"}")
 		return response, "error"
@@ -347,12 +347,37 @@ func getLocations(user_id int64) (string, string) {
 	return string(r), ""
 }
 
-func getActiveFollowings(follower_id int64) []int64 {
+func getActiveFollowingIds(follower_id int64) []int64 {
 	var ids []int64
 	db.Table("subscriptions").
 		Where("follower_id = ? AND status = ?", follower_id, "active").
 		Pluck("following_id", &ids)
 	return ids
+}
+func getExpiredFollowingGcmRegIds(user *User) []string {
+	type Result struct {
+		GcmRegId  string    `json:"gcm_reg_id"; `
+		UpdatedAt time.Time `json:"updated_at"`
+	}
+	following_ids := getActiveFollowingIds(user.Id)
+	if len(following_ids) == 0 {
+		return nil
+	}
+	var res []Result
+	db.Table("locations").
+		Select("users.gcm_reg_id, locations.updated_at").
+		Joins("left join users on locations.user_id = users.id").
+		Where("user_id in (?)", following_ids).
+		Scan(&res)
+
+	var result []string
+	for _, value := range res {
+		if value.GcmRegId != "" {
+			result = append(result, value.GcmRegId)
+		}
+	}
+	return result
+
 }
 
 func authUser(email string, token string, method string) *User {
