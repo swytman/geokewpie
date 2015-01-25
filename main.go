@@ -16,6 +16,7 @@ import (
 var db *gorm.DB
 var config *Config
 var reqlog RequestLog
+var gcmlog GcmLog
 
 // create new user
 // требуется написать проверку строк с паролем, почтой и логином
@@ -103,6 +104,7 @@ func postFollowingsHandler(w http.ResponseWriter, r *http.Request) {
 		response, strerr := postFollowings(user.Id, login)
 		if strerr == "" {
 			w.WriteHeader(201)
+			informNewFollowerGCM(login, user.Login)
 		} else {
 			w.WriteHeader(403)
 		}
@@ -205,15 +207,14 @@ func deleteFollowingsHandler(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func updateFollowingsHandler(w http.ResponseWriter, r *http.Request) {
+func askFollowingsLocationsHandler(w http.ResponseWriter, r *http.Request) {
 	initRequestLog("UpdateFollowings", r.URL.Path+"?"+r.URL.RawQuery, r.Host, r.Method)
 	fmt.Printf("GET /followings/update_locations \r\n")
 	user := authRequest(r)
 	if user.Email != "" {
-		content := r.URL.Query().Get("content")
 		reqlog.Login = user.Login
 		var strerr string
-		reqlog.ResponseBody, strerr = updateFollowingsGCM(user, content)
+		reqlog.ResponseBody, strerr = askFollowingsLocationsGCM(user)
 		if strerr == "" {
 			reqlog.ResponseCode = 200
 
@@ -356,7 +357,36 @@ func getLogsHandler(w http.ResponseWriter, r *http.Request) {
 		tmp.ActionsLog = item.ActionsLog
 		tmp.CreatedAt = item.CreatedAt.In(location).Format("15:04:05 02-01-2006")
 		t, _ := template.ParseFiles("./templates/logs/index.html")
+		t.Execute(w, tmp)
+	}
 
+}
+
+func getGcmLogsHandler(w http.ResponseWriter, r *http.Request) {
+	type RequestLogView struct {
+		Logins       string
+		Code         string
+		Request      string
+		ResponseCode string
+		ResponseBody string
+		CreatedAt    string
+	}
+	login := r.URL.Query().Get("login")
+	fmt.Printf("GET /gcmlogs \r\n")
+	logs := getGcmLogs(login)
+	h, _ := template.ParseFiles("./templates/gcmlogs/header.html")
+	h.Execute(w, nil)
+	location, _ := time.LoadLocation("Europe/Kaliningrad")
+	for _, item := range logs {
+		tmp := RequestLogView{}
+		tmp.Logins = item.Logins
+		tmp.Code = item.Code
+		tmp.Request = item.Request
+		tmp.ResponseCode = item.ResponseCode
+		tmp.ResponseBody = item.ResponseBody
+		tmp.CreatedAt = item.CreatedAt.In(location).Format("15:04:05 02-01-2006")
+		t, _ := template.ParseFiles("./templates/gcmlogs/index.html")
+		fmt.Println(t)
 		t.Execute(w, tmp)
 	}
 
@@ -402,8 +432,6 @@ func main() {
 	// 2. Обновить свои координаты
 	r.HandleFunc("/locations", postLocationsHandler).
 		Methods("POST")
-	// 3. Запрос на обновление координат друзей
-
 	// 3. Создание нового пользователя
 	r.HandleFunc("/users", createUserHandler).
 		Methods("POST")
@@ -422,7 +450,7 @@ func main() {
 	// 8. Удалить или отменить свою подписку
 	r.HandleFunc("/followings/{login}", deleteFollowingsHandler).
 		Methods("DELETE")
-	r.HandleFunc("/followings/update_locations", updateFollowingsHandler).
+	r.HandleFunc("/followings/update_locations", askFollowingsLocationsHandler).
 		Methods("GET")
 	// 9. Получить мои подписки
 	r.HandleFunc("/followings", getFollowingsHandler).
@@ -439,9 +467,10 @@ func main() {
 	// 13. Обновить gcmregid
 	r.HandleFunc("/user/update_gcmregid", updateGcmRegIdHandler).
 		Methods("POST")
-
 	// недокументированные или временные запросы
 	r.HandleFunc("/logs", getLogsHandler).
+		Methods("GET")
+	r.HandleFunc("/gcmlogs", getGcmLogsHandler).
 		Methods("GET")
 
 	r.Headers("X-Requested-With", "XMLHttpRequest")

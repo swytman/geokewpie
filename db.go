@@ -9,6 +9,16 @@ import (
 	"time"
 )
 
+type GcmLog struct {
+	Id           int64     `gorm:"primary_key:yes"`
+	Code         string    `json:"code"`
+	Logins       string    `sql:"type:text;json:"logins"`
+	Request      string    `sql:"type:text;json:"request"`
+	ResponseCode string    `json:"response_code"`
+	ResponseBody string    `sql:"type:text;json:"response_body"`
+	CreatedAt    time.Time `json:"created_at"`
+}
+
 type RequestLog struct {
 	Id           int64     `gorm:"primary_key:yes"`
 	Url          string    `json:"url"`
@@ -17,7 +27,7 @@ type RequestLog struct {
 	Code         string    `json:"code"`
 	Method       string    `json:"method"`
 	RequestBody  string    `sql:"type:text;json:"request_body"`
-	ResponseCode int       `json:"response_body"`
+	ResponseCode int       `json:"response_code"`
 	ResponseBody string    `sql:"type:text;json:"response_body"`
 	ActionsLog   string    `sql:"type:text;json:"actions_log"`
 	CreatedAt    time.Time `json:"created_at"`
@@ -68,7 +78,7 @@ func db_connect() *gorm.DB {
 }
 
 func init_database(pdb *gorm.DB) {
-	err := pdb.AutoMigrate(&Location{}, &User{}, &Subscription{}, &RequestLog{})
+	err := pdb.AutoMigrate(&Location{}, &User{}, &Subscription{}, &RequestLog{}, &GcmLog{})
 	if err != nil {
 		fmt.Printf("Create table error -->%v\n", err)
 		panic("Create table error")
@@ -402,17 +412,26 @@ func authUser(email string, token string, method string) *User {
 
 }
 
-func createRequestLog() {
-	reqlog.CreatedAt = time.Now()
-	db.Save(&reqlog)
-}
-
 func initRequestLog(code, url, host, method string) {
 	reqlog = RequestLog{}
 	reqlog.Code = code
 	reqlog.Url = url
 	reqlog.Host = host
 	reqlog.Method = method
+}
+func initGcmLog(code string) {
+	gcmlog = GcmLog{}
+	gcmlog.Code = code
+}
+
+func createRequestLog() {
+	reqlog.CreatedAt = time.Now()
+	db.Save(&reqlog)
+}
+
+func createGcmLog() {
+	gcmlog.CreatedAt = time.Now()
+	db.Save(&gcmlog)
 }
 
 func getLogs(login string) []RequestLog {
@@ -422,7 +441,15 @@ func getLogs(login string) []RequestLog {
 	} else {
 		db.Where("login = ?", login).Order("created_at desc").Limit(200).Find(&logs)
 	}
-
 	return logs
+}
 
+func getGcmLogs(login string) []GcmLog {
+	var logs []GcmLog
+	if login == "" {
+		db.Order("created_at desc").Limit(200).Find(&logs)
+	} else {
+		db.Where("login = ?", login).Order("created_at desc").Limit(200).Find(&logs)
+	}
+	return logs
 }

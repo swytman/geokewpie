@@ -15,9 +15,11 @@ type GcmRequestBody struct {
 }
 
 type GcmData struct {
+	Login string `json:"message"`
+	Code  string `json:"code"`
 }
 
-func (r GcmRequestBody) sendPush() string {
+func (r GcmRequestBody) sendPush(code string) string {
 	url := config.Gcm.Url
 	api_key := config.Gcm.ApiKey
 
@@ -37,15 +39,31 @@ func (r GcmRequestBody) sendPush() string {
 	result := fmt.Sprintf("response Status: %s \n", resp.Status)
 	result += fmt.Sprintf("response Headers: %s \n", resp.Header)
 	result += fmt.Sprintf("response Body: %s \n", string(body))
+	initGcmLog(code)
+	gcmlog.Request = string(jsonStr)
+	gcmlog.ResponseCode = resp.Status
+	gcmlog.ResponseBody = string(body)
+	createGcmLog()
 	return result
 }
 
-func updateFollowingsGCM(user *User, content string) (string, string) {
+func askFollowingsLocationsGCM(user *User) (string, string) {
 	if user.GcmRegId == "" {
 		return "User have no GcmRegId", "error"
 	}
 	gcmbody := GcmRequestBody{}
 	gcmbody.RegistrationIds = getExpiredFollowingGcmRegIds(user)
 	gcmbody.CollapseKey = "send_locations"
-	return gcmbody.sendPush(), ""
+	return gcmbody.sendPush("send_locations"), ""
+}
+
+func informNewFollowerGCM(following_login, follower_login string) {
+	var user User
+	db.Where("login = ?", following_login).First(&user)
+	if user.GcmRegId == "" {
+		return "User have no GcmRegId", "error"
+	}
+
+	
+	
 }
