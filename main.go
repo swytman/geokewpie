@@ -104,7 +104,7 @@ func postFollowingsHandler(w http.ResponseWriter, r *http.Request) {
 		response, strerr := postFollowings(user.Id, login)
 		if strerr == "" {
 			w.WriteHeader(201)
-			informNewFollowerGCM(login, user.Login)
+			informNewFollowerGCM(login)
 		} else {
 			w.WriteHeader(403)
 		}
@@ -386,7 +386,6 @@ func getGcmLogsHandler(w http.ResponseWriter, r *http.Request) {
 		tmp.ResponseBody = item.ResponseBody
 		tmp.CreatedAt = item.CreatedAt.In(location).Format("15:04:05 02-01-2006")
 		t, _ := template.ParseFiles("./templates/gcmlogs/index.html")
-		fmt.Println(t)
 		t.Execute(w, tmp)
 	}
 
