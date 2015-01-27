@@ -51,6 +51,9 @@ func askFollowingsLocationsGCM(user *User) (string, string) {
 	}
 	gcmreq := GcmRequest{}
 	gcmreq.RegistrationIds = getExpiredFollowingGcmRegIds(user)
+	if len(gcmreq.RegistrationIds) == 0 {
+		return `{"error": "No users to be updated"}`, "error"
+	}
 	gcmreq.CollapseKey = "send_locations"
 	return gcmreq.sendPush("send_locations"), ""
 }
@@ -63,6 +66,9 @@ func informNewFollowerGCM(following_login string) (string, string) {
 	}
 	gcmreq := GcmRequest{}
 	gcmreq.RegistrationIds = []string{user.GcmRegId}
+	if len(gcmreq.RegistrationIds) == 0 {
+		return `{"error": "No users to be updated"}`, "error"
+	}
 	gcmreq.CollapseKey = "new_follower"
 	return gcmreq.sendPush("new_follower"), ""
 }
