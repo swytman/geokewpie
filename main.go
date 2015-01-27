@@ -33,6 +33,7 @@ func createUserHandler(w http.ResponseWriter, r *http.Request) {
 	fmt.Printf("POST /users \r\n")
 	reqlog := initRequestLog("CreateUser", r.URL.Path+"?"+r.URL.RawQuery, r.Host, r.Method)
 	reqlog.Login = parsed_body.Login
+	reqlog.RequestBody = string(body)
 	if userLoginExists(parsed_body.Login) {
 		reqlog.ResponseCode = 403
 		reqlog.ResponseBody = `{"error": "Login used"}`
@@ -43,10 +44,7 @@ func createUserHandler(w http.ResponseWriter, r *http.Request) {
 		reqlog.ResponseBody = createUser(parsed_body.Email, parsed_body.Login, parsed_body.Password)
 		reqlog.ResponseCode = 201
 	}
-	fmt.Fprintf(w, reqlog.ResponseBody)
-	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	w.WriteHeader(reqlog.ResponseCode)
-	createRequestLog(reqlog)
+	finishRequest(reqlog, w)
 }
 
 func checkUserHandler(w http.ResponseWriter, r *http.Request) {
@@ -56,12 +54,10 @@ func checkUserHandler(w http.ResponseWriter, r *http.Request) {
 	email := r.URL.Query().Get("email")
 	if userLoginExists(login) || userEmailExists(email) {
 		reqlog.ResponseCode = 200
-		return
 	} else {
 		reqlog.ResponseCode = 404
 	}
-	w.WriteHeader(reqlog.ResponseCode)
-	createRequestLog(reqlog)
+	finishRequest(reqlog, w)
 }
 
 func refreshUserTokenHandler(w http.ResponseWriter, r *http.Request) {
@@ -70,11 +66,11 @@ func refreshUserTokenHandler(w http.ResponseWriter, r *http.Request) {
 		Password     string `json:"password"`
 		RefreshToken string `json:"refresh_token"`
 	}
-	fmt.Printf("POST /user/refresh_token \r\n")
-	reqlog := initRequestLog("UserRefreshToken", r.URL.Path+"?"+r.URL.RawQuery, r.Host, r.Method)
-	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	fmt.Printf("POST /user/token_refresh \r\n")
+	reqlog := initRequestLog("UserTokenRefresh", r.URL.Path+"?"+r.URL.RawQuery, r.Host, r.Method)
 	body, err := ioutil.ReadAll(r.Body)
 	panicErr(err, "Error read request body")
+	reqlog.RequestBody = string(body)
 	var rbt refreshTokenBody
 	var strerr string
 	err = json.Unmarshal(body, &rbt)
@@ -85,23 +81,24 @@ func refreshUserTokenHandler(w http.ResponseWriter, r *http.Request) {
 			reqlog.ResponseCode = 200
 		} else {
 			reqlog.ResponseCode = 403
+			reqlog.ActionsLog = strerr
 		}
 	} else if rbt.Email != "" && rbt.Password != "" {
+		reqlog.Login = rbt.Email
 		reqlog.ResponseBody, strerr = refreshToken(rbt.Email, rbt.Password, "password")
 		if strerr == "" {
 			reqlog.ResponseCode = 200
 		} else {
 			reqlog.ResponseCode = 403
+			reqlog.ActionsLog = strerr
 		}
 	} else {
 		reqlog.ResponseCode = 403
-		reqlog.ResponseBody = fmt.Sprintf("{\"error\": \"Please specify email and refresh_token OR email and password\"}")
+		reqlog.ActionsLog = strerr
+		reqlog.ResponseBody = fmt.Sprintf(`{"error": "Please specify email and refresh_token OR email and password"}`)
 
 	}
-	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	fmt.Fprintf(w, reqlog.ResponseBody)
-	w.WriteHeader(reqlog.ResponseCode)
-	createRequestLog(reqlog)
+	finishRequest(reqlog, w)
 }
 
 func postFollowingsHandler(w http.ResponseWriter, r *http.Request) {
@@ -121,14 +118,11 @@ func postFollowingsHandler(w http.ResponseWriter, r *http.Request) {
 			reqlog.ResponseCode = 403
 			reqlog.ActionsLog = strerr
 		}
-		fmt.Fprintf(w, reqlog.ResponseBody)
 	} else {
 		w.Header().Set("WWW-Authenticate", "Bearer realm=\"geokewpie\"")
 		reqlog.ResponseCode = 401
 	}
-	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	w.WriteHeader(reqlog.ResponseCode)
-	createRequestLog(reqlog)
+	finishRequest(reqlog, w)
 
 }
 
@@ -146,14 +140,11 @@ func getFollowersHandler(w http.ResponseWriter, r *http.Request) {
 			reqlog.ResponseCode = 403
 			reqlog.ActionsLog = strerr
 		}
-		fmt.Fprintf(w, reqlog.ResponseBody)
 	} else {
 		w.Header().Set("WWW-Authenticate", "Bearer realm=\"geokewpie\"")
 		reqlog.ResponseCode = 401
 	}
-	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	w.WriteHeader(reqlog.ResponseCode)
-	createRequestLog(reqlog)
+	finishRequest(reqlog, w)
 }
 
 func getFollowingsHandler(w http.ResponseWriter, r *http.Request) {
@@ -170,14 +161,11 @@ func getFollowingsHandler(w http.ResponseWriter, r *http.Request) {
 			reqlog.ResponseCode = 403
 			reqlog.ActionsLog = strerr
 		}
-		fmt.Fprintf(w, reqlog.ResponseBody)
 	} else {
 		w.Header().Set("WWW-Authenticate", "Bearer realm=\"geokewpie\"")
 		reqlog.ResponseCode = 401
 	}
-	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	w.WriteHeader(reqlog.ResponseCode)
-	createRequestLog(reqlog)
+	finishRequest(reqlog, w)
 }
 
 func postFollowersHandler(w http.ResponseWriter, r *http.Request) {
@@ -196,14 +184,11 @@ func postFollowersHandler(w http.ResponseWriter, r *http.Request) {
 			reqlog.ResponseCode = 403
 			reqlog.ActionsLog = strerr
 		}
-		fmt.Fprintf(w, reqlog.ResponseBody)
 	} else {
 		w.Header().Set("WWW-Authenticate", "Bearer realm=\"geokewpie\"")
 		reqlog.ResponseCode = 401
 	}
-	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	w.WriteHeader(reqlog.ResponseCode)
-	createRequestLog(reqlog)
+	finishRequest(reqlog, w)
 }
 
 func deleteFollowersHandler(w http.ResponseWriter, r *http.Request) {
@@ -222,14 +207,11 @@ func deleteFollowersHandler(w http.ResponseWriter, r *http.Request) {
 			reqlog.ResponseCode = 403
 			reqlog.ActionsLog = strerr
 		}
-		fmt.Fprintf(w, reqlog.ResponseBody)
 	} else {
 		w.Header().Set("WWW-Authenticate", "Bearer realm=\"geokewpie\"")
 		reqlog.ResponseCode = 401
 	}
-	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	w.WriteHeader(reqlog.ResponseCode)
-	createRequestLog(reqlog)
+	finishRequest(reqlog, w)
 }
 
 func deleteFollowingsHandler(w http.ResponseWriter, r *http.Request) {
@@ -248,14 +230,11 @@ func deleteFollowingsHandler(w http.ResponseWriter, r *http.Request) {
 			reqlog.ResponseCode = 403
 			reqlog.ActionsLog = strerr
 		}
-		fmt.Fprintf(w, reqlog.ResponseBody)
 	} else {
 		w.Header().Set("WWW-Authenticate", "Bearer realm=\"geokewpie\"")
 		reqlog.ResponseCode = 401
 	}
-	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	w.WriteHeader(reqlog.ResponseCode)
-	createRequestLog(reqlog)
+	finishRequest(reqlog, w)
 }
 
 func askFollowingsLocationsHandler(w http.ResponseWriter, r *http.Request) {
@@ -273,15 +252,13 @@ func askFollowingsLocationsHandler(w http.ResponseWriter, r *http.Request) {
 			reqlog.ResponseCode = 403
 			reqlog.ActionsLog = strerr
 		}
-		fmt.Fprintf(w, reqlog.ResponseBody)
 
 	} else {
 		w.Header().Set("WWW-Authenticate", "Bearer realm=\"geokewpie\"")
 		reqlog.ResponseCode = 401
 	}
-	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	w.WriteHeader(reqlog.ResponseCode)
-	createRequestLog(reqlog)
+	fmt.Println(reqlog)
+	finishRequest(reqlog, w)
 }
 
 func postLocationsHandler(w http.ResponseWriter, r *http.Request) {
@@ -309,13 +286,11 @@ func postLocationsHandler(w http.ResponseWriter, r *http.Request) {
 			reqlog.ResponseCode = 403
 			reqlog.ActionsLog = strerr
 		}
-		fmt.Fprintf(w, reqlog.ResponseBody)
 	} else {
 		w.Header().Set("WWW-Authenticate", "Bearer realm=\"geokewpie\"")
 		reqlog.ResponseCode = 401
 	}
-	w.WriteHeader(reqlog.ResponseCode)
-	createRequestLog(reqlog)
+	finishRequest(reqlog, w)
 }
 
 func updateGcmRegIdHandler(w http.ResponseWriter, r *http.Request) {
@@ -341,13 +316,11 @@ func updateGcmRegIdHandler(w http.ResponseWriter, r *http.Request) {
 			reqlog.ResponseCode = 403
 			reqlog.ActionsLog = strerr
 		}
-		fmt.Fprintf(w, reqlog.ResponseBody)
 	} else {
 		w.Header().Set("WWW-Authenticate", "Bearer realm=\"geokewpie\"")
 		reqlog.ResponseCode = 401
 	}
-	w.WriteHeader(reqlog.ResponseCode)
-	createRequestLog(reqlog)
+	finishRequest(reqlog, w)
 }
 
 func getLocationsHandler(w http.ResponseWriter, r *http.Request) {
@@ -365,15 +338,12 @@ func getLocationsHandler(w http.ResponseWriter, r *http.Request) {
 			reqlog.ResponseCode = 403
 			reqlog.ActionsLog = strerr
 		}
-		fmt.Fprintf(w, reqlog.ResponseBody)
 
 	} else {
 		w.Header().Set("WWW-Authenticate", "Bearer realm=\"geokewpie\"")
 		reqlog.ResponseCode = 401
 	}
-	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	w.WriteHeader(reqlog.ResponseCode)
-	createRequestLog(reqlog)
+	finishRequest(reqlog, w)
 }
 
 func getLogsHandler(w http.ResponseWriter, r *http.Request) {
@@ -459,15 +429,11 @@ func findUserByLettersHandler(w http.ResponseWriter, r *http.Request) {
 			reqlog.ResponseCode = 403
 			reqlog.ActionsLog = strerr
 		}
-		fmt.Fprintf(w, reqlog.ResponseBody)
-
 	} else {
 		w.Header().Set("WWW-Authenticate", "Bearer realm=\"geokewpie\"")
 		reqlog.ResponseCode = 401
 	}
-	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	w.WriteHeader(reqlog.ResponseCode)
-	createRequestLog(reqlog)
+	finishRequest(reqlog, w)
 
 }
 
@@ -539,4 +505,13 @@ func authRequest(r *http.Request) *User {
 	email := r.URL.Query().Get("email")
 	auth_token := r.URL.Query().Get("auth_token")
 	return authUser(email, auth_token, "auth_token")
+}
+
+func finishRequest(reqlog *RequestLog, w http.ResponseWriter) {
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.WriteHeader(reqlog.ResponseCode)
+	if reqlog.ResponseBody != "" {
+		fmt.Fprintf(w, reqlog.ResponseBody)
+	}
+	createRequestLog(reqlog)
 }

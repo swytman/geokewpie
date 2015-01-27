@@ -344,7 +344,7 @@ func getLocations(user_id int64) (string, string) {
 	}
 	following_ids := getActiveFollowingIds(user_id)
 	if len(following_ids) == 0 {
-		response := fmt.Sprintf("{\"error\": \"No active followings\"}")
+		response := fmt.Sprintf(`{"error": "No active followings"}"`)
 		return response, "error"
 	}
 	var res []Result
