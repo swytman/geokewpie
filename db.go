@@ -412,26 +412,28 @@ func authUser(email string, token string, method string) *User {
 
 }
 
-func initRequestLog(code, url, host, method string) {
-	reqlog = RequestLog{}
+func initRequestLog(code, url, host, method string) *RequestLog {
+	reqlog := RequestLog{}
 	reqlog.Code = code
 	reqlog.Url = url
 	reqlog.Host = host
 	reqlog.Method = method
+	return &reqlog
 }
-func initGcmLog(code string) {
-	gcmlog = GcmLog{}
+func initGcmLog(code string) *GcmLog {
+	gcmlog := GcmLog{}
 	gcmlog.Code = code
+	return &gcmlog
 }
 
-func createRequestLog() {
+func createRequestLog(reqlog *RequestLog) {
 	reqlog.CreatedAt = time.Now()
-	db.Save(&reqlog)
+	db.Save(reqlog)
 }
 
-func createGcmLog() {
+func createGcmLog(gcmlog *GcmLog) {
 	gcmlog.CreatedAt = time.Now()
-	db.Save(&gcmlog)
+	db.Save(gcmlog)
 }
 
 func getLogs(login string) []RequestLog {
