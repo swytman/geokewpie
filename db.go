@@ -356,7 +356,7 @@ func getLocations(user_id int64) (string, string) {
 	}
 	following_ids := getActiveFollowingIds(user_id)
 	if len(following_ids) == 0 {
-		response := fmt.Sprintf("{\"error\": \"No active followings\"}")
+		response := fmt.Sprintf(`{"error": "No active followings"}"`)
 		return response, "error"
 	}
 	var res []Result
@@ -476,26 +476,28 @@ func authUser(email string, token string, method string) *User {
 
 }
 
-func initRequestLog(code, url, host, method string) {
-	reqlog = RequestLog{}
+func initRequestLog(code, url, host, method string) *RequestLog {
+	reqlog := RequestLog{}
 	reqlog.Code = code
 	reqlog.Url = url
 	reqlog.Host = host
 	reqlog.Method = method
+	return &reqlog
 }
-func initGcmLog(code string) {
-	gcmlog = GcmLog{}
+func initGcmLog(code string) *GcmLog {
+	gcmlog := GcmLog{}
 	gcmlog.Code = code
+	return &gcmlog
 }
 
-func createRequestLog() {
+func createRequestLog(reqlog *RequestLog) {
 	reqlog.CreatedAt = time.Now()
-	db.Save(&reqlog)
+	db.Save(reqlog)
 }
 
-func createGcmLog() {
+func createGcmLog(gcmlog *GcmLog) {
 	gcmlog.CreatedAt = time.Now()
-	db.Save(&gcmlog)
+	db.Save(gcmlog)
 }
 
 func getLogs(login string) []RequestLog {

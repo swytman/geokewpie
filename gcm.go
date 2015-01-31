@@ -8,7 +8,7 @@ import (
 	"net/http"
 )
 
-type GcmRequestBody struct {
+type GcmRequest struct {
 	RegistrationIds []string `json:"registration_ids"`
 	CollapseKey     string   `json:"collapse_key"`
 	Data            GcmData  `json:"data"`
@@ -19,7 +19,7 @@ type GcmData struct {
 	Code  string `json:"code"`
 }
 
-func (r GcmRequestBody) sendPush(code string) string {
+func (r GcmRequest) sendPush(code string) string {
 	url := config.Gcm.Url
 	api_key := config.Gcm.ApiKey
 
@@ -37,11 +37,11 @@ func (r GcmRequestBody) sendPush(code string) string {
 	result := fmt.Sprintf("response Status: %s \n", resp.Status)
 	result += fmt.Sprintf("response Headers: %s \n", resp.Header)
 	result += fmt.Sprintf("response Body: %s \n", string(body))
-	initGcmLog(code)
+	gcmlog := initGcmLog(code)
 	gcmlog.Request = string(jsonStr)
 	gcmlog.ResponseCode = resp.Status
 	gcmlog.ResponseBody = string(body)
-	createGcmLog()
+	createGcmLog(gcmlog)
 	return result
 }
 
@@ -49,10 +49,13 @@ func askFollowingsLocationsGCM(user *User) (string, string) {
 	if user.GcmRegId == "" {
 		return "User have no GcmRegId", "error"
 	}
-	gcmbody := GcmRequestBody{}
-	gcmbody.RegistrationIds = getExpiredFollowingGcmRegIds(user)
-	gcmbody.CollapseKey = "send_locations"
-	return gcmbody.sendPush("send_locations"), ""
+	gcmreq := GcmRequest{}
+	gcmreq.RegistrationIds = getExpiredFollowingGcmRegIds(user)
+	if len(gcmreq.RegistrationIds) == 0 {
+		return `{"error": "No users to be updated"}`, "error"
+	}
+	gcmreq.CollapseKey = "send_locations"
+	return gcmreq.sendPush("send_locations"), ""
 }
 
 func informNewFollowerGCM(following_login string) (string, string) {
@@ -61,8 +64,11 @@ func informNewFollowerGCM(following_login string) (string, string) {
 	if user.GcmRegId == "" {
 		return "User have no GcmRegId", "error"
 	}
-	gcmbody := GcmRequestBody{}
-	gcmbody.RegistrationIds = []string{user.GcmRegId}
-	gcmbody.CollapseKey = "new_follower"
-	return gcmbody.sendPush("new_follower"), ""
+	gcmreq := GcmRequest{}
+	gcmreq.RegistrationIds = []string{user.GcmRegId}
+	if len(gcmreq.RegistrationIds) == 0 {
+		return `{"error": "No users to be updated"}`, "error"
+	}
+	gcmreq.CollapseKey = "new_follower"
+	return gcmreq.sendPush("new_follower"), ""
 }

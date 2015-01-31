@@ -15,8 +15,6 @@ import (
 
 var db *gorm.DB
 var config *Config
-var reqlog RequestLog
-var gcmlog GcmLog
 
 // create new user
 // требуется написать проверку строк с паролем, почтой и логином
@@ -26,38 +24,40 @@ func createUserHandler(w http.ResponseWriter, r *http.Request) {
 		Email    string `json:"email"`
 		Password string `json:"password"`
 	}
-	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+
 	body, err := ioutil.ReadAll(r.Body)
 	panicErr(err, "Error read request body")
 
 	var parsed_body CreateUserBody
 	err = json.Unmarshal(body, &parsed_body)
 	fmt.Printf("POST /users \r\n")
+	reqlog := initRequestLog("CreateUser", r.URL.Path+"?"+r.URL.RawQuery, r.Host, r.Method)
+	reqlog.Login = parsed_body.Login
+	reqlog.RequestBody = string(body)
 	if userLoginExists(parsed_body.Login) {
-		w.WriteHeader(403)
-		fmt.Fprintf(w, "{\"error\": \"Login used\"}")
-		return
+		reqlog.ResponseCode = 403
+		reqlog.ResponseBody = `{"error": "Login used"}`
+	} else if userEmailExists(parsed_body.Email) {
+		reqlog.ResponseCode = 403
+		reqlog.ResponseBody = `{"error": "Email used"}`
+	} else {
+		reqlog.ResponseBody = createUser(parsed_body.Email, parsed_body.Login, parsed_body.Password)
+		reqlog.ResponseCode = 201
 	}
-	if userEmailExists(parsed_body.Email) {
-		w.WriteHeader(403)
-		fmt.Fprintf(w, "{\"error\": \"Email used\"}")
-		return
-	}
-	response := createUser(parsed_body.Email, parsed_body.Login, parsed_body.Password)
-	w.WriteHeader(201)
-	fmt.Fprintf(w, string(response))
-
+	finishRequest(reqlog, w)
 }
 
 func checkUserHandler(w http.ResponseWriter, r *http.Request) {
 	fmt.Printf("GET %s?%s \r\n", r.URL.Path, r.URL.RawQuery)
+	reqlog := initRequestLog("CheckUser", r.URL.Path+"?"+r.URL.RawQuery, r.Host, r.Method)
 	login := r.URL.Query().Get("login")
 	email := r.URL.Query().Get("email")
 	if userLoginExists(login) || userEmailExists(email) {
-		w.WriteHeader(200)
-		return
+		reqlog.ResponseCode = 200
+	} else {
+		reqlog.ResponseCode = 404
 	}
-	w.WriteHeader(404)
+	finishRequest(reqlog, w)
 }
 
 func refreshUserTokenHandler(w http.ResponseWriter, r *http.Request) {
@@ -66,149 +66,179 @@ func refreshUserTokenHandler(w http.ResponseWriter, r *http.Request) {
 		Password     string `json:"password"`
 		RefreshToken string `json:"refresh_token"`
 	}
-	fmt.Printf("POST /user/refresh_token \r\n")
-	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	fmt.Printf("POST /user/token_refresh \r\n")
+	reqlog := initRequestLog("UserTokenRefresh", r.URL.Path+"?"+r.URL.RawQuery, r.Host, r.Method)
 	body, err := ioutil.ReadAll(r.Body)
 	panicErr(err, "Error read request body")
+	reqlog.RequestBody = string(body)
 	var rbt refreshTokenBody
+	var strerr string
 	err = json.Unmarshal(body, &rbt)
 	if rbt.Email != "" && rbt.RefreshToken != "" {
-		response, err := refreshToken(rbt.Email, rbt.RefreshToken, "refresh_token")
-		if err == "" {
-			w.WriteHeader(200)
+		reqlog.Login = rbt.Email
+		reqlog.ResponseBody, strerr = refreshToken(rbt.Email, rbt.RefreshToken, "refresh_token")
+		if strerr == "" {
+			reqlog.ResponseCode = 200
 		} else {
-			w.WriteHeader(403)
+			reqlog.ResponseCode = 403
+			reqlog.ActionsLog = strerr
 		}
-		fmt.Fprintf(w, string(response))
 	} else if rbt.Email != "" && rbt.Password != "" {
-		response, err := refreshToken(rbt.Email, rbt.Password, "password")
-		if err == "" {
-			w.WriteHeader(200)
+		reqlog.Login = rbt.Email
+		reqlog.ResponseBody, strerr = refreshToken(rbt.Email, rbt.Password, "password")
+		if strerr == "" {
+			reqlog.ResponseCode = 200
 		} else {
-			w.WriteHeader(403)
+			reqlog.ResponseCode = 403
+			reqlog.ActionsLog = strerr
 		}
-		fmt.Fprintf(w, string(response))
 	} else {
-		w.WriteHeader(403)
-		response := fmt.Sprintf("{\"error\": \"Please specify email and refresh_token OR email and password\"}")
-		fmt.Fprintf(w, string(response))
+		reqlog.ResponseCode = 403
+		reqlog.ActionsLog = strerr
+		reqlog.ResponseBody = fmt.Sprintf(`{"error": "Please specify email and refresh_token OR email and password"}`)
+
 	}
+	finishRequest(reqlog, w)
 }
 
 func postFollowingsHandler(w http.ResponseWriter, r *http.Request) {
-	fmt.Printf("POST /followings \r\n")
+	fmt.Printf("POST /followings/{login} \r\n")
+	reqlog := initRequestLog("PostFollowings", r.URL.Path+"?"+r.URL.RawQuery, r.Host, r.Method)
 	vars := mux.Vars(r)
 	login := vars["login"]
 	user := authRequest(r)
 	if user.Email != "" {
-		response, strerr := postFollowings(user.Id, login)
+		reqlog.Login = user.Login
+		var strerr string
+		reqlog.ResponseBody, strerr = postFollowings(user.Id, login)
 		if strerr == "" {
-			w.WriteHeader(201)
+			reqlog.ResponseCode = 201
 			informNewFollowerGCM(login)
 		} else {
-			w.WriteHeader(403)
+			reqlog.ResponseCode = 403
+			reqlog.ActionsLog = strerr
 		}
-		fmt.Fprintf(w, string(response))
 	} else {
 		w.Header().Set("WWW-Authenticate", "Bearer realm=\"geokewpie\"")
-		w.WriteHeader(401)
+		reqlog.ResponseCode = 401
 	}
+	finishRequest(reqlog, w)
 
 }
 
 func getFollowersHandler(w http.ResponseWriter, r *http.Request) {
 	fmt.Printf("GET /followers \r\n")
+	reqlog := initRequestLog("GetFollowers", r.URL.Path+"?"+r.URL.RawQuery, r.Host, r.Method)
 	user := authRequest(r)
 	if user.Email != "" {
-		response, strerr := getFollowers(user.Id)
+		reqlog.Login = user.Login
+		var strerr string
+		reqlog.ResponseBody, strerr = getFollowers(user.Id)
 		if strerr == "" {
-			w.WriteHeader(200)
+			reqlog.ResponseCode = 200
 		} else {
-			w.WriteHeader(403)
+			reqlog.ResponseCode = 403
+			reqlog.ActionsLog = strerr
 		}
-		fmt.Fprintf(w, string(response))
 	} else {
 		w.Header().Set("WWW-Authenticate", "Bearer realm=\"geokewpie\"")
-		w.WriteHeader(401)
+		reqlog.ResponseCode = 401
 	}
+	finishRequest(reqlog, w)
 }
 
 func getFollowingsHandler(w http.ResponseWriter, r *http.Request) {
 	fmt.Printf("GET /followings \r\n")
+	reqlog := initRequestLog("GetFollowings", r.URL.Path+"?"+r.URL.RawQuery, r.Host, r.Method)
 	user := authRequest(r)
 	if user.Email != "" {
-		response, strerr := getFollowings(user.Id)
+		reqlog.Login = user.Login
+		var strerr string
+		reqlog.ResponseBody, strerr = getFollowings(user.Id)
 		if strerr == "" {
-			w.WriteHeader(200)
+			reqlog.ResponseCode = 200
 		} else {
-			w.WriteHeader(403)
+			reqlog.ResponseCode = 403
+			reqlog.ActionsLog = strerr
 		}
-		fmt.Fprintf(w, string(response))
 	} else {
 		w.Header().Set("WWW-Authenticate", "Bearer realm=\"geokewpie\"")
-		w.WriteHeader(401)
+		reqlog.ResponseCode = 401
 	}
+	finishRequest(reqlog, w)
 }
 
 func postFollowersHandler(w http.ResponseWriter, r *http.Request) {
 	fmt.Printf("POST /follower/{login} \r\n")
+	reqlog := initRequestLog("PostFollowers", r.URL.Path+"?"+r.URL.RawQuery, r.Host, r.Method)
 	user := authRequest(r)
 	vars := mux.Vars(r)
 	login := vars["login"]
 	if user.Email != "" {
-		response, strerr := postFollowers(user.Id, login)
+		reqlog.Login = user.Login
+		var strerr string
+		reqlog.ResponseBody, strerr = postFollowers(user.Id, login)
 		if strerr == "" {
-			w.WriteHeader(200)
+			reqlog.ResponseCode = 200
 		} else {
-			w.WriteHeader(403)
+			reqlog.ResponseCode = 403
+			reqlog.ActionsLog = strerr
 		}
-		fmt.Fprintf(w, string(response))
 	} else {
 		w.Header().Set("WWW-Authenticate", "Bearer realm=\"geokewpie\"")
-		w.WriteHeader(401)
+		reqlog.ResponseCode = 401
 	}
+	finishRequest(reqlog, w)
 }
 
 func deleteFollowersHandler(w http.ResponseWriter, r *http.Request) {
-	fmt.Printf("POST /follower/{login} \r\n")
+	fmt.Printf("DELETE /follower/{login} \r\n")
+	reqlog := initRequestLog("DeleteFollowers", r.URL.Path+"?"+r.URL.RawQuery, r.Host, r.Method)
 	user := authRequest(r)
 	vars := mux.Vars(r)
 	login := vars["login"]
 	if user.Email != "" {
-		response, strerr := deleteFollowers(user.Id, login)
+		reqlog.Login = user.Login
+		var strerr string
+		reqlog.ResponseBody, strerr = deleteFollowers(user.Id, login)
 		if strerr == "" {
-			w.WriteHeader(200)
+			reqlog.ResponseCode = 200
 		} else {
-			w.WriteHeader(403)
+			reqlog.ResponseCode = 403
+			reqlog.ActionsLog = strerr
 		}
-		fmt.Fprintf(w, string(response))
 	} else {
 		w.Header().Set("WWW-Authenticate", "Bearer realm=\"geokewpie\"")
-		w.WriteHeader(401)
+		reqlog.ResponseCode = 401
 	}
+	finishRequest(reqlog, w)
 }
 
 func deleteFollowingsHandler(w http.ResponseWriter, r *http.Request) {
-	fmt.Printf("POST /followings/{login} \r\n")
+	fmt.Printf("DELETE /followings/{login} \r\n")
+	reqlog := initRequestLog("DeleteFollowings", r.URL.Path+"?"+r.URL.RawQuery, r.Host, r.Method)
 	user := authRequest(r)
 	vars := mux.Vars(r)
 	login := vars["login"]
 	if user.Email != "" {
-		response, strerr := deleteFollowings(user.Id, login)
+		reqlog.Login = user.Login
+		var strerr string
+		reqlog.ResponseBody, strerr = deleteFollowings(user.Id, login)
 		if strerr == "" {
-			w.WriteHeader(200)
+			reqlog.ResponseCode = 200
 		} else {
-			w.WriteHeader(403)
+			reqlog.ResponseCode = 403
+			reqlog.ActionsLog = strerr
 		}
-		fmt.Fprintf(w, string(response))
 	} else {
 		w.Header().Set("WWW-Authenticate", "Bearer realm=\"geokewpie\"")
-		w.WriteHeader(401)
+		reqlog.ResponseCode = 401
 	}
+	finishRequest(reqlog, w)
 }
 
 func askFollowingsLocationsHandler(w http.ResponseWriter, r *http.Request) {
-	initRequestLog("UpdateFollowings", r.URL.Path+"?"+r.URL.RawQuery, r.Host, r.Method)
+	reqlog := initRequestLog("UpdateFollowings", r.URL.Path+"?"+r.URL.RawQuery, r.Host, r.Method)
 	fmt.Printf("GET /followings/update_locations \r\n")
 	user := authRequest(r)
 	if user.Email != "" {
@@ -222,15 +252,13 @@ func askFollowingsLocationsHandler(w http.ResponseWriter, r *http.Request) {
 			reqlog.ResponseCode = 403
 			reqlog.ActionsLog = strerr
 		}
-		fmt.Fprintf(w, reqlog.ResponseBody)
 
 	} else {
 		w.Header().Set("WWW-Authenticate", "Bearer realm=\"geokewpie\"")
 		reqlog.ResponseCode = 401
 	}
-	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	w.WriteHeader(reqlog.ResponseCode)
-	createRequestLog()
+	fmt.Println(reqlog)
+	finishRequest(reqlog, w)
 }
 
 func postLocationsHandler(w http.ResponseWriter, r *http.Request) {
@@ -240,7 +268,7 @@ func postLocationsHandler(w http.ResponseWriter, r *http.Request) {
 		DeviceCode string  `json:"device_code"`
 		Accuracy   float32 `json:"accuracy"`
 	}
-	initRequestLog("PostLocations", r.URL.Path+"?"+r.URL.RawQuery, r.Host, r.Method)
+	reqlog := initRequestLog("PostLocations", r.URL.Path+"?"+r.URL.RawQuery, r.Host, r.Method)
 	fmt.Printf("POST /locations \r\n")
 	body, err := ioutil.ReadAll(r.Body)
 	reqlog.RequestBody = string(body)
@@ -259,20 +287,18 @@ func postLocationsHandler(w http.ResponseWriter, r *http.Request) {
 			reqlog.ResponseCode = 403
 			reqlog.ActionsLog = strerr
 		}
-		fmt.Fprintf(w, reqlog.ResponseBody)
 	} else {
 		w.Header().Set("WWW-Authenticate", "Bearer realm=\"geokewpie\"")
 		reqlog.ResponseCode = 401
 	}
-	w.WriteHeader(reqlog.ResponseCode)
-	createRequestLog()
+	finishRequest(reqlog, w)
 }
 
 func updateGcmRegIdHandler(w http.ResponseWriter, r *http.Request) {
 	type Body struct {
 		GcmRegId string `json:"gcm_reg_id"`
 	}
-	initRequestLog("UpdateGcmRegId", r.URL.Path+"?"+r.URL.RawQuery, r.Host, r.Method)
+	reqlog := initRequestLog("UpdateGcmRegId", r.URL.Path+"?"+r.URL.RawQuery, r.Host, r.Method)
 	fmt.Printf("POST /user/update_gcmregid \r\n")
 	body, err := ioutil.ReadAll(r.Body)
 	reqlog.RequestBody = string(body)
@@ -291,17 +317,15 @@ func updateGcmRegIdHandler(w http.ResponseWriter, r *http.Request) {
 			reqlog.ResponseCode = 403
 			reqlog.ActionsLog = strerr
 		}
-		fmt.Fprintf(w, reqlog.ResponseBody)
 	} else {
 		w.Header().Set("WWW-Authenticate", "Bearer realm=\"geokewpie\"")
 		reqlog.ResponseCode = 401
 	}
-	w.WriteHeader(reqlog.ResponseCode)
-	createRequestLog()
+	finishRequest(reqlog, w)
 }
 
 func getLocationsHandler(w http.ResponseWriter, r *http.Request) {
-	initRequestLog("GetLocations", r.URL.Path+"?"+r.URL.RawQuery, r.Host, r.Method)
+	reqlog := initRequestLog("GetLocations", r.URL.Path+"?"+r.URL.RawQuery, r.Host, r.Method)
 	fmt.Printf("GET /locations \r\n")
 	user := authRequest(r)
 	if user.Email != "" {
@@ -315,15 +339,12 @@ func getLocationsHandler(w http.ResponseWriter, r *http.Request) {
 			reqlog.ResponseCode = 403
 			reqlog.ActionsLog = strerr
 		}
-		fmt.Fprintf(w, reqlog.ResponseBody)
 
 	} else {
 		w.Header().Set("WWW-Authenticate", "Bearer realm=\"geokewpie\"")
 		reqlog.ResponseCode = 401
 	}
-	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	w.WriteHeader(reqlog.ResponseCode)
-	createRequestLog()
+	finishRequest(reqlog, w)
 }
 
 func getLogsHandler(w http.ResponseWriter, r *http.Request) {
@@ -393,7 +414,7 @@ func getGcmLogsHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func findUserByLettersHandler(w http.ResponseWriter, r *http.Request) {
-	initRequestLog("FindUserByLetters", r.URL.Path+"?"+r.URL.RawQuery, r.Host, r.Method)
+	reqlog := initRequestLog("FindUserByLetters", r.URL.Path+"?"+r.URL.RawQuery, r.Host, r.Method)
 	fmt.Printf("GET /uses/{letters} \r\n")
 	user := authRequest(r)
 	if user.Email != "" {
@@ -409,15 +430,11 @@ func findUserByLettersHandler(w http.ResponseWriter, r *http.Request) {
 			reqlog.ResponseCode = 403
 			reqlog.ActionsLog = strerr
 		}
-		fmt.Fprintf(w, reqlog.ResponseBody)
-
 	} else {
 		w.Header().Set("WWW-Authenticate", "Bearer realm=\"geokewpie\"")
 		reqlog.ResponseCode = 401
 	}
-	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	w.WriteHeader(reqlog.ResponseCode)
-	createRequestLog()
+	finishRequest(reqlog, w)
 
 }
 
@@ -559,4 +576,13 @@ func authRequest(r *http.Request) *User {
 	email := r.URL.Query().Get("email")
 	auth_token := r.URL.Query().Get("auth_token")
 	return authUser(email, auth_token, "auth_token")
+}
+
+func finishRequest(reqlog *RequestLog, w http.ResponseWriter) {
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.WriteHeader(reqlog.ResponseCode)
+	if reqlog.ResponseBody != "" {
+		fmt.Fprintf(w, reqlog.ResponseBody)
+	}
+	createRequestLog(reqlog)
 }
