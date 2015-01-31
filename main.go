@@ -235,9 +235,10 @@ func askFollowingsLocationsHandler(w http.ResponseWriter, r *http.Request) {
 
 func postLocationsHandler(w http.ResponseWriter, r *http.Request) {
 	type Body struct {
-		Latitude  float32 `json:"latitude"`
-		Longitude float32 `json:"longitude"`
-		Accuracy  float32 `json:"accuracy"`
+		Latitude   float32 `json:"latitude"`
+		Longitude  float32 `json:"longitude"`
+		DeviceCode string  `json:"device_code"`
+		Accuracy   float32 `json:"accuracy"`
 	}
 	initRequestLog("PostLocations", r.URL.Path+"?"+r.URL.RawQuery, r.Host, r.Method)
 	fmt.Printf("POST /locations \r\n")
@@ -420,6 +421,70 @@ func findUserByLettersHandler(w http.ResponseWriter, r *http.Request) {
 
 }
 
+func postDevicesHandler(w http.ResponseWriter, r *http.Request) {
+	type Body struct {
+		DeviceCode string `json:"device_code"`
+		GcmRegId   string `sql:"default:'';json:"gcm_reg_id"`
+		Platform   string `json:"platform"`
+		OsVersion  string `json:"os_version"`
+		AppVersion string `json:"app_version"`
+		Model      string `json:"model"`
+	}
+	initRequestLog("PostDevices", r.URL.Path+"?"+r.URL.RawQuery, r.Host, r.Method)
+	fmt.Printf("POST /devices \r\n")
+	body, err := ioutil.ReadAll(r.Body)
+	reqlog.RequestBody = string(body)
+	user := authRequest(r)
+	if user.Email != "" {
+		reqlog.Login = user.Login
+		panicErr(err, "Error read request body")
+		var body_struct Body
+		err = json.Unmarshal(body, &body_struct)
+		var strerr string
+		reqlog.ResponseBody, strerr = postDevices(user.Id,
+			body_struct.DeviceCode, body_struct.GcmRegId, body_struct.Platform,
+			body_struct.OsVersion, body_struct.AppVersion, body_struct.Model)
+		if strerr == "" {
+			reqlog.ResponseCode = 200
+		} else {
+			reqlog.ResponseCode = 403
+			reqlog.ActionsLog = strerr
+		}
+		fmt.Fprintf(w, reqlog.ResponseBody)
+	} else {
+		w.Header().Set("WWW-Authenticate", "Bearer realm=\"geokewpie\"")
+		reqlog.ResponseCode = 401
+	}
+	w.WriteHeader(reqlog.ResponseCode)
+	createRequestLog()
+}
+
+func getDevicesHandler(w http.ResponseWriter, r *http.Request) {
+	initRequestLog("GetDevices", r.URL.Path+"?"+r.URL.RawQuery, r.Host, r.Method)
+	fmt.Printf("GET /devices \r\n")
+	user := authRequest(r)
+	if user.Email != "" {
+		reqlog.Login = user.Login
+		var strerr string
+		reqlog.ResponseBody, strerr = getDevices(user.Id)
+		if strerr == "" {
+			reqlog.ResponseCode = 200
+
+		} else {
+			reqlog.ResponseCode = 403
+			reqlog.ActionsLog = strerr
+		}
+		fmt.Fprintf(w, reqlog.ResponseBody)
+
+	} else {
+		w.Header().Set("WWW-Authenticate", "Bearer realm=\"geokewpie\"")
+		reqlog.ResponseCode = 401
+	}
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.WriteHeader(reqlog.ResponseCode)
+	createRequestLog()
+}
+
 func main() {
 	config = load_config("./config.yaml")
 	db = db_connect()
@@ -435,13 +500,13 @@ func main() {
 	r.HandleFunc("/users", createUserHandler).
 		Methods("POST")
 	// 4. Проверка существования пользователя
-	r.HandleFunc("/user", checkUserHandler).
+	r.HandleFunc("/users/check", checkUserHandler).
 		Methods("GET")
 	// 5. Поиск пользователя по первым буквам логина
-	r.HandleFunc("/user/{letters}", findUserByLettersHandler).
+	r.HandleFunc("/users/find/{letters}", findUserByLettersHandler).
 		Methods("GET")
 	// 6. Обновление токена
-	r.HandleFunc("/user/token_refresh", refreshUserTokenHandler).
+	r.HandleFunc("/users/token_refresh", refreshUserTokenHandler).
 		Methods("POST")
 	// 7. Создание новой подписки
 	r.HandleFunc("/followings/{login}", postFollowingsHandler).
@@ -466,6 +531,12 @@ func main() {
 	// 13. Обновить gcmregid
 	r.HandleFunc("/user/update_gcmregid", updateGcmRegIdHandler).
 		Methods("POST")
+	r.HandleFunc("/devices", getDevicesHandler).
+		Methods("GET")
+	r.HandleFunc("/devices", postDevicesHandler).
+		Methods("POST")
+	r.HandleFunc("/devices", deleteDevicesHandler).
+		Methods("DELETE")
 	// недокументированные или временные запросы
 	r.HandleFunc("/logs", getLogsHandler).
 		Methods("GET")
