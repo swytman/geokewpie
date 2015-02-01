@@ -409,12 +409,13 @@ func findUserByLettersHandler(w http.ResponseWriter, r *http.Request) {
 
 func postDevicesHandler(w http.ResponseWriter, r *http.Request) {
 	type Body struct {
-		DeviceCode string `json:"device_code"`
-		GcmRegId   string `json:"gcm_reg_id"`
-		Platform   string `json:"platform"`
-		OsVersion  string `json:"os_version"`
-		AppVersion string `json:"app_version"`
-		Model      string `json:"model"`
+		DeviceCode   string `json:"device_code"`
+		GcmRegId     string `json:"gcm_reg_id"`
+		Platform     string `json:"platform"`
+		Manufacturer string `json:"manufacturer"`
+		OsVersion    string `json:"os_version"`
+		AppVersion   string `json:"app_version"`
+		Model        string `json:"model"`
 	}
 	reqlog := initRequestLog("PostDevices", r.URL.Path+"?"+r.URL.RawQuery, r.Host, r.Method)
 	fmt.Printf("POST /devices \r\n")
@@ -431,7 +432,7 @@ func postDevicesHandler(w http.ResponseWriter, r *http.Request) {
 		fmt.Println(user.Id)
 		reqlog.ResponseBody, strerr = postDevices(user.Id,
 			body_struct.DeviceCode, body_struct.GcmRegId, body_struct.Platform,
-			body_struct.OsVersion, body_struct.AppVersion, body_struct.Model)
+			body_struct.OsVersion, body_struct.AppVersion, body_struct.Model, body_struct.Manufacturer)
 		if strerr == "" {
 			reqlog.ResponseCode = 200
 		} else {

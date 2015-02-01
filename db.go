@@ -56,16 +56,17 @@ type User struct {
 }
 
 type Device struct {
-	Id         int64     `gorm:"primary_key:yes"`
-	UserId     int64     `json:"user_id"`
-	DeviceCode string    `json:"device_code";unique`
-	GcmRegId   string    `sql:"default:'';json:"gcm_reg_id"`
-	Platform   string    `json:"platform"`
-	OsVersion  string    `json:"os_version"`
-	AppVersion string    `json:"app_version"`
-	Model      string    `json:"model"`
-	CreatedAt  time.Time `json:"created_at"`
-	UpdatedAt  time.Time `json:"updated_at"`
+	Id           int64     `gorm:"primary_key:yes"`
+	UserId       int64     `json:"user_id"`
+	DeviceCode   string    `json:"device_code";unique`
+	GcmRegId     string    `sql:"default:'';json:"gcm_reg_id"`
+	Platform     string    `json:"platform"`
+	OsVersion    string    `json:"os_version"`
+	AppVersion   string    `json:"app_version"`
+	Manufacturer string    `json:"manufacturer"`
+	Model        string    `json:"model"`
+	CreatedAt    time.Time `json:"created_at"`
+	UpdatedAt    time.Time `json:"updated_at"`
 }
 
 type Subscription struct {
@@ -371,20 +372,21 @@ func getLocations(user_id int64) (string, string) {
 }
 
 func postDevices(user_id int64, devcode, gcmregid, platform,
-	osver, appver, model string) (string, string) {
+	osver, appver, model, manufacturer string) (string, string) {
 	var result Device
 	db.Where("device_code = ?", devcode).First(&result)
 	if result.DeviceCode != devcode {
 		dev := Device{
-			UserId:     user_id,
-			DeviceCode: devcode,
-			GcmRegId:   gcmregid,
-			Platform:   platform,
-			OsVersion:  osver,
-			AppVersion: appver,
-			Model:      model,
-			CreatedAt:  time.Now(),
-			UpdatedAt:  time.Now(),
+			UserId:       user_id,
+			DeviceCode:   devcode,
+			GcmRegId:     gcmregid,
+			Platform:     platform,
+			OsVersion:    osver,
+			AppVersion:   appver,
+			Model:        model,
+			Manufacturer: manufacturer,
+			CreatedAt:    time.Now(),
+			UpdatedAt:    time.Now(),
 		}
 		db.Save(&dev)
 	} else {
@@ -411,17 +413,18 @@ func postDevices(user_id int64, devcode, gcmregid, platform,
 
 func getDevices(user_id int64) (string, string) {
 	type Result struct {
-		DeviceCode string `json:"device_code"`
-		GcmRegId   string `json:"gcm_reg_id"`
-		Platform   string `json:"platform"`
-		OsVersion  string `json:"os_version"`
-		AppVersion string `json:"app_version"`
-		Model      string `json:"model"`
+		DeviceCode   string `json:"device_code"`
+		GcmRegId     string `json:"gcm_reg_id"`
+		Platform     string `json:"platform"`
+		OsVersion    string `json:"os_version"`
+		AppVersion   string `json:"app_version"`
+		Model        string `json:"model"`
+		Manufacturer string `json:"manufacturer"`
 	}
 
 	var res []Result
 	db.Table("devices").
-		Select("device_code, gcm_reg_id, platform, os_version, app_version, model").
+		Select("device_code, gcm_reg_id, platform, os_version, app_version, model, manufacturer").
 		Where("user_id = ?", user_id).
 		Scan(&res)
 	if len(res) == 0 {
