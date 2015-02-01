@@ -34,13 +34,14 @@ type RequestLog struct {
 }
 
 type Location struct {
-	Id        int64     `gorm:"primary_key:yes"`
-	DeviceId  int64     `json:"device_id"`
-	Latitude  float32   `json:"latitude"`
-	Longitude float32   `json:"longitude"`
-	Accuracy  float32   `json:"accuracy"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
+	Id         int64     `gorm:"primary_key:yes"`
+	UserId     int64     `json:"user_id"`
+	DeviceCode string    `json:"device_code"`
+	Latitude   float32   `json:"latitude"`
+	Longitude  float32   `json:"longitude"`
+	Accuracy   float32   `json:"accuracy"`
+	CreatedAt  time.Time `json:"created_at"`
+	UpdatedAt  time.Time `json:"updated_at"`
 }
 
 type User struct {
@@ -90,7 +91,7 @@ func db_connect() *gorm.DB {
 }
 
 func init_database(pdb *gorm.DB) {
-	err := pdb.AutoMigrate(&Location{}, &User{}, &Subscription{}, &RequestLog{}, &GcmLog{})
+	err := pdb.AutoMigrate(&Location{}, &User{}, &Subscription{}, &RequestLog{}, &GcmLog{}, &Device{})
 	if err != nil {
 		fmt.Printf("Create table error -->%v\n", err)
 		panic("Create table error")
@@ -132,12 +133,6 @@ func userEmailExists(email string) bool {
 	} else {
 		return true
 	}
-}
-
-func getUserGcmRegId(login string) string {
-	var result User
-	db.Where("login = ?", login).First(&result)
-	return result.GcmRegId
 }
 
 func createHash(source_string string) string {
@@ -195,11 +190,11 @@ func postFollowings(follower_id int64, following_login string) (string, string) 
 	var user User
 	db.Where("login = ?", following_login).First(&user)
 	if user.Login == "" || user.Login != following_login {
-		response := fmt.Sprintf("{\"error\": \"User not found\"}")
+		response := fmt.Sprintf(`{"error": "User not found"}`)
 		return response, "error"
 	}
 	if user.Id == follower_id {
-		response := fmt.Sprintf("{\"error\": \"Following to self\"}")
+		response := fmt.Sprintf(`{"error": "Following to self"}`)
 		return response, "error"
 	}
 
@@ -288,7 +283,7 @@ func deleteFollowers(user_id int64, login string) (string, string) {
 		Where("following_id = ? AND users.login = ?", user_id, login).
 		First(&sub)
 	if sub.Id == 0 {
-		response := fmt.Sprintf("{\"error\": \"No followers with this login\"}")
+		response := fmt.Sprintf(`{"error": "No followers with this login"}`)
 		return response, "error"
 	}
 	if sub.Id != 0 {
@@ -306,7 +301,7 @@ func deleteFollowings(user_id int64, login string) (string, string) {
 		Where("follower_id = ? AND users.login = ?", user_id, login).
 		First(&sub)
 	if sub.Id == 0 {
-		response := fmt.Sprintf("{\"error\": \"No followings with this login\"}")
+		response := fmt.Sprintf(`{"error": "No followings with this login"}`)
 		return response, "error"
 	}
 	if sub.Id != 0 {
@@ -316,17 +311,18 @@ func deleteFollowings(user_id int64, login string) (string, string) {
 	return "", ""
 }
 
-func postLocations(user_id int64, lat, lon, acc float32) (string, string) {
+func postLocations(user_id int64, code string, lat, lon, acc float32) (string, string) {
 	var result Location
-	db.Where("user_id = ?", user_id).First(&result)
+	db.Where("user_id = ? AND device_code = ?", user_id, code).First(&result)
 	if result.UserId != user_id {
 		loc := Location{
-			UserId:    user_id,
-			Latitude:  lat,
-			Longitude: lon,
-			Accuracy:  acc,
-			CreatedAt: time.Now(),
-			UpdatedAt: time.Now(),
+			UserId:     user_id,
+			DeviceCode: code,
+			Latitude:   lat,
+			Longitude:  lon,
+			Accuracy:   acc,
+			CreatedAt:  time.Now(),
+			UpdatedAt:  time.Now(),
 		}
 		db.Save(&loc)
 	} else {
@@ -339,32 +335,37 @@ func postLocations(user_id int64, lat, lon, acc float32) (string, string) {
 	return "", ""
 }
 
-func updateGcmRegId(user *User, gcm_reg_id string) (string, string) {
-	user.GcmRegId = gcm_reg_id
-	user.UpdatedAt = time.Now()
-	db.Save(user)
-	return "", ""
-}
-
 func getLocations(user_id int64) (string, string) {
-	type Result struct {
-		Login     string    `json:"login"`
-		Latitude  float32   `json:"latitude"`
-		Longitude float32   `json:"longitude"`
-		Accuracy  float32   `json:"accuracy"`
-		UpdatedAt time.Time `json:"updated_at"`
+
+	type DevLoc struct {
+		DeviceCode string    `json:"device_code"`
+		Model      string    `json:"device_model"`
+		Latitude   float32   `json:"latitude"`
+		Longitude  float32   `json:"longitude"`
+		Accuracy   float32   `json:"accuracy"`
+		UpdatedAt  time.Time `json:"updated_at"`
 	}
-	following_ids := getActiveFollowingIds(user_id)
-	if len(following_ids) == 0 {
+	type Result struct {
+		Login   string   `json:"login"`
+		Devices []DevLoc `json:"devices"`
+	}
+
+	users := getActiveFollowings(user_id)
+	if len(users) == 0 {
 		response := fmt.Sprintf(`{"error": "No active followings"}"`)
 		return response, "error"
 	}
 	var res []Result
-	db.Table("locations").
-		Select("users.login, locations.latitude, locations.longitude, locations.accuracy, locations.updated_at").
-		Joins("left join users on locations.user_id = users.id").
-		Where("user_id in (?)", following_ids).
-		Scan(&res)
+	for _, user := range users {
+		var devloc []DevLoc
+		db.Table("locations").
+			Select("devices.device_code, devices.model, locations.latitude, locations.longitude, locations.accuracy, locations.updated_at").
+			Joins("left join devices on devices.device_code = locations.device_code").
+			Where("devices.user_id = ?", user.Id).
+			Scan(&devloc)
+		res = append(res, Result{user.Login, devloc})
+	}
+
 	r, _ := json.Marshal(res)
 	return string(r), ""
 }
@@ -372,26 +373,36 @@ func getLocations(user_id int64) (string, string) {
 func postDevices(user_id int64, devcode, gcmregid, platform,
 	osver, appver, model string) (string, string) {
 	var result Device
-	db.Where("devcode = ?", devcode).First(&result)
+	db.Where("device_code = ?", devcode).First(&result)
 	if result.DeviceCode != devcode {
 		dev := Device{
-			UserId:    		user_id,
-			DeviceCode:  	devcode,
-			GcmRegId: 		gcmregid,
-			Platform  		platform,
-			OsVersion  		osver,
-			AppVersion 		appver,
-			Model      		model,
-			CreatedAt: 		time.Now(),
-			UpdatedAt: 		time.Now(),
+			UserId:     user_id,
+			DeviceCode: devcode,
+			GcmRegId:   gcmregid,
+			Platform:   platform,
+			OsVersion:  osver,
+			AppVersion: appver,
+			Model:      model,
+			CreatedAt:  time.Now(),
+			UpdatedAt:  time.Now(),
 		}
 		db.Save(&dev)
 	} else {
-		if gcmregid !="" {result.GcmRegId = gcmregid}
-		if platform !="" {result.Platform = platform}
-		if osver 	!="" {result.OsVersion = osver}
-		if appver 	!="" {result.AppVersion = appver}
-		if model 	!="" {result.Model = model}
+		if gcmregid != "" {
+			result.GcmRegId = gcmregid
+		}
+		if platform != "" {
+			result.Platform = platform
+		}
+		if osver != "" {
+			result.OsVersion = osver
+		}
+		if appver != "" {
+			result.AppVersion = appver
+		}
+		if model != "" {
+			result.Model = model
+		}
 		result.UpdatedAt = time.Now()
 		db.Save(&result)
 	}
@@ -400,12 +411,12 @@ func postDevices(user_id int64, devcode, gcmregid, platform,
 
 func getDevices(user_id int64) (string, string) {
 	type Result struct {
-		DeviceCode string    `json:"device_code"`
-		GcmRegId   string    `json:"gcm_reg_id"`
-		Platform   string    `json:"platform"`
-		OsVersion  string    `json:"os_version"`
-		AppVersion string    `json:"app_version"`
-		Model      string    `json:"model"`
+		DeviceCode string `json:"device_code"`
+		GcmRegId   string `json:"gcm_reg_id"`
+		Platform   string `json:"platform"`
+		OsVersion  string `json:"os_version"`
+		AppVersion string `json:"app_version"`
+		Model      string `json:"model"`
 	}
 
 	var res []Result
@@ -421,6 +432,22 @@ func getDevices(user_id int64) (string, string) {
 	return string(r), ""
 }
 
+func deleteDevices(user_id int64, code string) (string, string) {
+	var dev Device
+	db.Table("devices").
+		Where("user_id = ? AND device_code = ?", user_id, code).
+		First(&dev)
+	if dev.Id == 0 {
+		response := fmt.Sprintf(`{"error": "No followings with this login"}`)
+		return response, "error"
+	}
+	if dev.Id != 0 {
+		db.Delete(&dev)
+		return "", ""
+	}
+	return "", ""
+}
+
 func getActiveFollowingIds(follower_id int64) []int64 {
 	var ids []int64
 	db.Table("subscriptions").
@@ -428,6 +455,17 @@ func getActiveFollowingIds(follower_id int64) []int64 {
 		Pluck("following_id", &ids)
 	return ids
 }
+
+func getActiveFollowings(follower_id int64) []User {
+	var users []User
+	db.Table("subscriptions").
+		Select("users.*").
+		Where("follower_id = ? AND status = ?", follower_id, "active").
+		Joins("left join users on subscriptions.following_id = users.id").
+		Scan(&users)
+	return users
+}
+
 func getExpiredFollowingGcmRegIds(user *User) []string {
 	type Result struct {
 		GcmRegId  string    `json:"gcm_reg_id"; `
@@ -439,9 +477,9 @@ func getExpiredFollowingGcmRegIds(user *User) []string {
 	}
 	var res []Result
 	db.Table("locations").
-		Select("users.gcm_reg_id, locations.updated_at").
-		Joins("left join users on locations.user_id = users.id").
-		Where("user_id in (?)", following_ids).
+		Select("devices.gcm_reg_id, locations.updated_at").
+		Joins("left join devices on devices.user_id = locations.id").
+		Where("devices.user_id in (?)", following_ids).
 		Scan(&res)
 
 	var result []string
@@ -518,4 +556,13 @@ func getGcmLogs(login string) []GcmLog {
 		db.Where("login = ?", login).Order("created_at desc").Limit(200).Find(&logs)
 	}
 	return logs
+}
+
+func getUserDevicesGCMRegIdByLogin(login string) []string {
+	var res []string
+	db.Table("devices").
+		Joins("left join users on devices.user_id = users.id").
+		Where("users.login = ?", login).
+		Pluck("devices.gcm_reg_id", &res)
+	return res
 }

@@ -46,9 +46,6 @@ func (r GcmRequest) sendPush(code string) string {
 }
 
 func askFollowingsLocationsGCM(user *User) (string, string) {
-	if user.GcmRegId == "" {
-		return "User have no GcmRegId", "error"
-	}
 	gcmreq := GcmRequest{}
 	gcmreq.RegistrationIds = getExpiredFollowingGcmRegIds(user)
 	if len(gcmreq.RegistrationIds) == 0 {
@@ -59,13 +56,12 @@ func askFollowingsLocationsGCM(user *User) (string, string) {
 }
 
 func informNewFollowerGCM(following_login string) (string, string) {
-	var user User
-	db.Where("login = ?", following_login).First(&user)
-	if user.GcmRegId == "" {
-		return "User have no GcmRegId", "error"
+	gcm_reg_ids := getUserDevicesGCMRegIdByLogin(following_login)
+	if len(gcm_reg_ids) == 0 {
+		return "User have no devices with GcmRegId", "error"
 	}
 	gcmreq := GcmRequest{}
-	gcmreq.RegistrationIds = []string{user.GcmRegId}
+	gcmreq.RegistrationIds = gcm_reg_ids
 	if len(gcmreq.RegistrationIds) == 0 {
 		return `{"error": "No users to be updated"}`, "error"
 	}

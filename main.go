@@ -257,7 +257,6 @@ func askFollowingsLocationsHandler(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("WWW-Authenticate", "Bearer realm=\"geokewpie\"")
 		reqlog.ResponseCode = 401
 	}
-	fmt.Println(reqlog)
 	finishRequest(reqlog, w)
 }
 
@@ -279,38 +278,8 @@ func postLocationsHandler(w http.ResponseWriter, r *http.Request) {
 		var body_struct Body
 		err = json.Unmarshal(body, &body_struct)
 		var strerr string
-		reqlog.ResponseBody, strerr = postLocations(user.Id,
+		reqlog.ResponseBody, strerr = postLocations(user.Id, body_struct.DeviceCode,
 			body_struct.Latitude, body_struct.Longitude, body_struct.Accuracy)
-		if strerr == "" {
-			reqlog.ResponseCode = 200
-		} else {
-			reqlog.ResponseCode = 403
-			reqlog.ActionsLog = strerr
-		}
-	} else {
-		w.Header().Set("WWW-Authenticate", "Bearer realm=\"geokewpie\"")
-		reqlog.ResponseCode = 401
-	}
-	finishRequest(reqlog, w)
-}
-
-func updateGcmRegIdHandler(w http.ResponseWriter, r *http.Request) {
-	type Body struct {
-		GcmRegId string `json:"gcm_reg_id"`
-	}
-	reqlog := initRequestLog("UpdateGcmRegId", r.URL.Path+"?"+r.URL.RawQuery, r.Host, r.Method)
-	fmt.Printf("POST /user/update_gcmregid \r\n")
-	body, err := ioutil.ReadAll(r.Body)
-	reqlog.RequestBody = string(body)
-	user := authRequest(r)
-	if user.Email != "" {
-		reqlog.Login = user.Login
-		panicErr(err, "Error read request body")
-		var body_struct Body
-		err = json.Unmarshal(body, &body_struct)
-		var strerr string
-		reqlog.ResponseBody, strerr = updateGcmRegId(user,
-			body_struct.GcmRegId)
 		if strerr == "" {
 			reqlog.ResponseCode = 200
 		} else {
@@ -441,23 +410,25 @@ func findUserByLettersHandler(w http.ResponseWriter, r *http.Request) {
 func postDevicesHandler(w http.ResponseWriter, r *http.Request) {
 	type Body struct {
 		DeviceCode string `json:"device_code"`
-		GcmRegId   string `sql:"default:'';json:"gcm_reg_id"`
+		GcmRegId   string `json:"gcm_reg_id"`
 		Platform   string `json:"platform"`
 		OsVersion  string `json:"os_version"`
 		AppVersion string `json:"app_version"`
 		Model      string `json:"model"`
 	}
-	initRequestLog("PostDevices", r.URL.Path+"?"+r.URL.RawQuery, r.Host, r.Method)
+	reqlog := initRequestLog("PostDevices", r.URL.Path+"?"+r.URL.RawQuery, r.Host, r.Method)
 	fmt.Printf("POST /devices \r\n")
 	body, err := ioutil.ReadAll(r.Body)
+	panicErr(err, "Error read request body")
 	reqlog.RequestBody = string(body)
 	user := authRequest(r)
 	if user.Email != "" {
 		reqlog.Login = user.Login
-		panicErr(err, "Error read request body")
 		var body_struct Body
 		err = json.Unmarshal(body, &body_struct)
+		panicErr(err, "Bad json in request body")
 		var strerr string
+		fmt.Println(user.Id)
 		reqlog.ResponseBody, strerr = postDevices(user.Id,
 			body_struct.DeviceCode, body_struct.GcmRegId, body_struct.Platform,
 			body_struct.OsVersion, body_struct.AppVersion, body_struct.Model)
@@ -467,17 +438,15 @@ func postDevicesHandler(w http.ResponseWriter, r *http.Request) {
 			reqlog.ResponseCode = 403
 			reqlog.ActionsLog = strerr
 		}
-		fmt.Fprintf(w, reqlog.ResponseBody)
 	} else {
 		w.Header().Set("WWW-Authenticate", "Bearer realm=\"geokewpie\"")
 		reqlog.ResponseCode = 401
 	}
-	w.WriteHeader(reqlog.ResponseCode)
-	createRequestLog()
+	finishRequest(reqlog, w)
 }
 
 func getDevicesHandler(w http.ResponseWriter, r *http.Request) {
-	initRequestLog("GetDevices", r.URL.Path+"?"+r.URL.RawQuery, r.Host, r.Method)
+	reqlog := initRequestLog("GetDevices", r.URL.Path+"?"+r.URL.RawQuery, r.Host, r.Method)
 	fmt.Printf("GET /devices \r\n")
 	user := authRequest(r)
 	if user.Email != "" {
@@ -491,15 +460,40 @@ func getDevicesHandler(w http.ResponseWriter, r *http.Request) {
 			reqlog.ResponseCode = 403
 			reqlog.ActionsLog = strerr
 		}
-		fmt.Fprintf(w, reqlog.ResponseBody)
-
 	} else {
 		w.Header().Set("WWW-Authenticate", "Bearer realm=\"geokewpie\"")
 		reqlog.ResponseCode = 401
 	}
-	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	w.WriteHeader(reqlog.ResponseCode)
-	createRequestLog()
+	finishRequest(reqlog, w)
+}
+
+func deleteDevicesHandler(w http.ResponseWriter, r *http.Request) {
+	type Body struct {
+		DeviceCode string `json:"device_code"`
+	}
+	fmt.Printf("DELETE /devices \r\n")
+	reqlog := initRequestLog("DeleteDevices", r.URL.Path+"?"+r.URL.RawQuery, r.Host, r.Method)
+	user := authRequest(r)
+	body, err := ioutil.ReadAll(r.Body)
+	reqlog.RequestBody = string(body)
+	if user.Email != "" {
+		reqlog.Login = user.Login
+		var body_struct Body
+		err = json.Unmarshal(body, &body_struct)
+		panicErr(err, "Bad json in request body")
+		var strerr string
+		reqlog.ResponseBody, strerr = deleteDevices(user.Id, body_struct.DeviceCode)
+		if strerr == "" {
+			reqlog.ResponseCode = 200
+		} else {
+			reqlog.ResponseCode = 403
+			reqlog.ActionsLog = strerr
+		}
+	} else {
+		w.Header().Set("WWW-Authenticate", "Bearer realm=\"geokewpie\"")
+		reqlog.ResponseCode = 401
+	}
+	finishRequest(reqlog, w)
 }
 
 func main() {
@@ -545,9 +539,7 @@ func main() {
 	// 12. Получить список подписчиков
 	r.HandleFunc("/followers", getFollowersHandler).
 		Methods("GET")
-	// 13. Обновить gcmregid
-	r.HandleFunc("/user/update_gcmregid", updateGcmRegIdHandler).
-		Methods("POST")
+
 	r.HandleFunc("/devices", getDevicesHandler).
 		Methods("GET")
 	r.HandleFunc("/devices", postDevicesHandler).
