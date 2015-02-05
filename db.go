@@ -364,7 +364,9 @@ func getLocations(user_id int64) (string, string) {
 			Joins("left join devices on devices.device_code = locations.device_code").
 			Where("devices.user_id = ?", user.Id).
 			Scan(&devloc)
-		res = append(res, Result{user.Login, devloc})
+		if !(len(devloc) == 0) {
+			res = append(res, Result{user.Login, devloc})
+		}
 	}
 
 	r, _ := json.Marshal(res)
@@ -479,9 +481,9 @@ func getExpiredFollowingGcmRegIds(user *User) []string {
 		return nil
 	}
 	var res []Result
-	db.Table("locations").
+	db.Table("devices").
 		Select("devices.gcm_reg_id, locations.updated_at").
-		Joins("left join devices on devices.user_id = locations.id").
+		Joins("left join locations on devices.user_id = locations.user_id").
 		Where("devices.user_id in (?)", following_ids).
 		Scan(&res)
 
