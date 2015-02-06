@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"github.com/jinzhu/gorm"
 	_ "github.com/lib/pq"
@@ -149,13 +150,12 @@ func createUser(email, login, password string) string {
 	tokenString := time.Now().Format("200601021504051234") + "ololo"
 	authToken := createHash(tokenString + login)
 	refreshToken := createHash(tokenString + email)
-	hashedAuthToken := createHash(authToken)
 	hashedRefreshToken := createHash(refreshToken)
 	user := User{
 		Email:        email,
 		Login:        login,
 		Password:     hashedPassword,
-		AuthToken:    hashedAuthToken,
+		AuthToken:    authToken,
 		RefreshToken: hashedRefreshToken,
 		CreatedAt:    time.Now(),
 		UpdatedAt:    time.Now(),
@@ -172,9 +172,8 @@ func refreshToken(email, token, method string) (string, string) {
 		tokenString := time.Now().Format("200601021504051234") + "ololo"
 		authToken := createHash(tokenString + email)
 		refreshToken := createHash(tokenString)
-		hashedAuthToken := createHash(authToken)
 		hashedRefreshToken := createHash(refreshToken)
-		user.AuthToken = hashedAuthToken
+		user.AuthToken = authToken
 		user.RefreshToken = hashedRefreshToken
 		user.UpdatedAt = time.Now()
 		db.Save(user)
@@ -233,7 +232,7 @@ func getFollowers(user_id int64) (string, string) {
 		Scan(&res)
 	r, _ := json.Marshal(res)
 	if len(res) == 0 {
-		response := fmt.Sprintf("{\"error\": \"No followers\"")
+		response := `{"error": "No followers"}`
 		return response, "error"
 	}
 	return string(r), ""
@@ -252,7 +251,7 @@ func getFollowings(user_id int64) (string, string) {
 		Scan(&res)
 	r, _ := json.Marshal(res)
 	if len(res) == 0 {
-		response := fmt.Sprintf("{\"error\": \"No followings\"}")
+		response := `{"error": "No followings"}`
 		return response, "error"
 	}
 	return string(r), ""
@@ -284,7 +283,7 @@ func deleteFollowers(user_id int64, login string) (string, string) {
 		Where("following_id = ? AND users.login = ?", user_id, login).
 		First(&sub)
 	if sub.Id == 0 {
-		response := fmt.Sprintf(`{"error": "No followers with this login"}`)
+		response := `{"error": "No followers with this login"}`
 		return response, "error"
 	}
 	if sub.Id != 0 {
@@ -499,18 +498,20 @@ func getExpiredFollowingGcmRegIds(user *User) []string {
 
 func authUser(email string, token string, method string) *User {
 	var user User
-	var dbtoken string
+	var err error
 	db.Where("email = ?", email).First(&user)
 
 	switch method {
 	case "refresh_token":
-		dbtoken = user.RefreshToken
+		err = bcrypt.CompareHashAndPassword([]byte(user.RefreshToken), []byte(token))
 	case "auth_token":
-		dbtoken = user.AuthToken
+		if user.AuthToken != token {
+			err = errors.New("wrong token")
+		}
 	case "password":
-		dbtoken = user.Password
+		err = bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(token))
 	}
-	err := bcrypt.CompareHashAndPassword([]byte(dbtoken), []byte(token))
+
 	if err == nil {
 		return &user
 	} else {

@@ -60,47 +60,6 @@ func checkUserHandler(w http.ResponseWriter, r *http.Request) {
 	finishRequest(reqlog, w)
 }
 
-func refreshUserTokenHandler(w http.ResponseWriter, r *http.Request) {
-	type refreshTokenBody struct {
-		Email        string `json:"email"`
-		Password     string `json:"password"`
-		RefreshToken string `json:"refresh_token"`
-	}
-	fmt.Printf("POST /user/token_refresh \r\n")
-	reqlog := initRequestLog("UserTokenRefresh", r.URL.Path+"?"+r.URL.RawQuery, r.Host, r.Method)
-	body, err := ioutil.ReadAll(r.Body)
-	panicErr(err, "Error read request body")
-	reqlog.RequestBody = string(body)
-	var rbt refreshTokenBody
-	var strerr string
-	err = json.Unmarshal(body, &rbt)
-	if rbt.Email != "" && rbt.RefreshToken != "" {
-		reqlog.Login = rbt.Email
-		reqlog.ResponseBody, strerr = refreshToken(rbt.Email, rbt.RefreshToken, "refresh_token")
-		if strerr == "" {
-			reqlog.ResponseCode = 200
-		} else {
-			reqlog.ResponseCode = 403
-			reqlog.ActionsLog = strerr
-		}
-	} else if rbt.Email != "" && rbt.Password != "" {
-		reqlog.Login = rbt.Email
-		reqlog.ResponseBody, strerr = refreshToken(rbt.Email, rbt.Password, "password")
-		if strerr == "" {
-			reqlog.ResponseCode = 200
-		} else {
-			reqlog.ResponseCode = 403
-			reqlog.ActionsLog = strerr
-		}
-	} else {
-		reqlog.ResponseCode = 403
-		reqlog.ActionsLog = strerr
-		reqlog.ResponseBody = fmt.Sprintf(`{"error": "Please specify email and refresh_token OR email and password"}`)
-
-	}
-	finishRequest(reqlog, w)
-}
-
 func postFollowingsHandler(w http.ResponseWriter, r *http.Request) {
 	fmt.Printf("POST /followings/{login} \r\n")
 	reqlog := initRequestLog("PostFollowings", r.URL.Path+"?"+r.URL.RawQuery, r.Host, r.Method)
@@ -497,6 +456,64 @@ func deleteDevicesHandler(w http.ResponseWriter, r *http.Request) {
 	finishRequest(reqlog, w)
 }
 
+func getSessionHandler(w http.ResponseWriter, r *http.Request) {
+	fmt.Printf("GET /session \r\n")
+	reqlog := initRequestLog("GetSession", r.URL.Path+"?"+r.URL.RawQuery, r.Host, r.Method)
+	email := r.URL.Query().Get("email")
+	password := r.URL.Query().Get("password")
+	user := authUser(email, password, "password")
+	if user.Email != "" {
+		reqlog.Login = user.Login
+		reqlog.ResponseBody = fmt.Sprintf(`{"auth_token": "%s"}`, user.AuthToken)
+		reqlog.ResponseCode = 200
+	} else {
+		w.Header().Set("WWW-Authenticate", `Bearer realm="geokewpie"`)
+		reqlog.ResponseCode = 401
+	}
+	finishRequest(reqlog, w)
+}
+
+func postSessionHandler(w http.ResponseWriter, r *http.Request) {
+	type refreshTokenBody struct {
+		Email        string `json:"email"`
+		Password     string `json:"password"`
+		RefreshToken string `json:"refresh_token"`
+	}
+	fmt.Printf("POST /session \r\n")
+	reqlog := initRequestLog("PostSession", r.URL.Path+"?"+r.URL.RawQuery, r.Host, r.Method)
+	body, err := ioutil.ReadAll(r.Body)
+	panicErr(err, "Error read request body")
+	reqlog.RequestBody = string(body)
+	var rbt refreshTokenBody
+	var strerr string
+	err = json.Unmarshal(body, &rbt)
+	if rbt.Email != "" && rbt.RefreshToken != "" {
+		reqlog.Login = rbt.Email
+		reqlog.ResponseBody, strerr = refreshToken(rbt.Email, rbt.RefreshToken, "refresh_token")
+		if strerr == "" {
+			reqlog.ResponseCode = 200
+		} else {
+			reqlog.ResponseCode = 403
+			reqlog.ActionsLog = strerr
+		}
+	} else if rbt.Email != "" && rbt.Password != "" {
+		reqlog.Login = rbt.Email
+		reqlog.ResponseBody, strerr = refreshToken(rbt.Email, rbt.Password, "password")
+		if strerr == "" {
+			reqlog.ResponseCode = 200
+		} else {
+			reqlog.ResponseCode = 403
+			reqlog.ActionsLog = strerr
+		}
+	} else {
+		reqlog.ResponseCode = 403
+		reqlog.ActionsLog = strerr
+		reqlog.ResponseBody = fmt.Sprintf(`{"error": "Please specify email and refresh_token OR email and password"}`)
+
+	}
+	finishRequest(reqlog, w)
+}
+
 func main() {
 	config = load_config("./config.yaml")
 	db = db_connect()
@@ -517,9 +534,10 @@ func main() {
 	// 5. Поиск пользователя по первым буквам логина
 	r.HandleFunc("/users/find/{letters}", findUserByLettersHandler).
 		Methods("GET")
-	// 6. Обновление токена
-	r.HandleFunc("/users/token_refresh", refreshUserTokenHandler).
+	r.HandleFunc("/session", postSessionHandler).
 		Methods("POST")
+	r.HandleFunc("/session", getSessionHandler).
+		Methods("GET")
 	// 7. Создание новой подписки
 	r.HandleFunc("/followings/{login}", postFollowingsHandler).
 		Methods("POST")
