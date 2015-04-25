@@ -1,12 +1,13 @@
 package main
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"github.com/jinzhu/gorm"
 	_ "github.com/lib/pq"
-	"golang.org/x/crypto/bcrypt"
+	"io"
 	"time"
 )
 
@@ -18,6 +19,14 @@ type GcmLog struct {
 	ResponseCode string    `json:"response_code"`
 	ResponseBody string    `sql:"type:text;json:"response_body"`
 	CreatedAt    time.Time `json:"created_at"`
+}
+
+type FacebookProfile struct {
+	Id       int64  `gorm:"primary_key:yes"`
+	UserId   int64  `json:"user_id"`
+	FbId     string `json:"fb_id"`
+	Name     string `json:"name"`
+	FbSecret string `json:"fb_secret"`
 }
 
 type RequestLog struct {
@@ -93,10 +102,20 @@ func db_connect() *gorm.DB {
 }
 
 func init_database(pdb *gorm.DB) {
-	err := pdb.AutoMigrate(&Location{}, &User{}, &Subscription{}, &RequestLog{}, &GcmLog{}, &Device{})
+	err := pdb.AutoMigrate(&Location{}, &User{}, &Subscription{}, &RequestLog{}, &GcmLog{}, &Device{}, &FacebookProfile{})
 	if err != nil {
 		fmt.Printf("Create table error -->%v\n", err)
 		panic("Create table error")
+	}
+}
+
+func fbProfileExists(fb_id string) bool {
+	var result FacebookProfile
+	db.Where("fb_id = ?", fb_id).First(&result)
+	if result.FbId == "" {
+		return false
+	} else {
+		return true
 	}
 }
 
@@ -138,21 +157,24 @@ func userEmailExists(email string) bool {
 }
 
 func createHash(source_string string) string {
-	result, err := bcrypt.GenerateFromPassword([]byte(source_string), 10)
-	if err != nil {
-		panic(err)
-	}
+	h256 := sha256.New()
+	io.WriteString(h256, source_string)
+	result := hex.EncodeToString(h256.Sum(nil))
 	return string(result)
 }
 
-func createUser(email, login, password string) string {
+func compareHashAndPassword(hash, token string) bool {
+	return hash == createHash(token)
+}
+
+func createSimpleUser(login, password string) string {
 	hashedPassword := createHash(password)
 	tokenString := time.Now().Format("200601021504051234") + "ololo"
 	authToken := createHash(tokenString + login)
-	refreshToken := createHash(tokenString + email)
+	refreshToken := createHash(login + tokenString)
 	hashedRefreshToken := createHash(refreshToken)
 	user := User{
-		Email:        email,
+		Email:        "",
 		Login:        login,
 		Password:     hashedPassword,
 		AuthToken:    authToken,
@@ -161,16 +183,73 @@ func createUser(email, login, password string) string {
 		UpdatedAt:    time.Now(),
 	}
 	db.Save(&user)
-	response := fmt.Sprintf("{\"auth_token\": \"%s\",\"refresh_token\": \"%s\"}",
+	response := fmt.Sprintf(`{"auth_token": "%s","refresh_token": "%s"}`,
 		authToken, refreshToken)
 	return response
 }
 
-func refreshToken(email, token, method string) (string, string) {
-	user := authUser(email, token, method)
-	if user.Email == email {
+func createFacebookUser(login, fb_secret, fb_id, name string) (string, string) {
+	hashedSecret := createHash(fb_secret)
+	fmt.Printf(hashedSecret)
+	tokenString := time.Now().Format("200601021504051234") + "ololo"
+	authToken := createHash(tokenString + login)
+	refreshToken := createHash(login + tokenString)
+	hashedRefreshToken := createHash(refreshToken)
+	user := User{
+		Email:        "",
+		Login:        login,
+		Password:     "",
+		AuthToken:    authToken,
+		RefreshToken: hashedRefreshToken,
+		CreatedAt:    time.Now(),
+		UpdatedAt:    time.Now(),
+	}
+	db.Save(&user)
+
+	resProfile := createFacebookProfile(user.Id, hashedSecret, fb_id, name)
+
+	var response string
+	if resProfile == "" {
+		response = fmt.Sprintf("{\"auth_token\": \"%s\",\"refresh_token\": \"%s\"}",
+			authToken, refreshToken)
+	} else {
+		return resProfile, "error"
+	}
+
+	return response, ""
+}
+
+func createFacebookProfile(user_id int64, hashed_secret, fb_id, name string) string {
+	if haveFacebookProfile(user_id) == true {
+		return `{"error": "User already have FB profile"}`
+	}
+
+	fbprofile := FacebookProfile{
+		UserId:   user_id,
+		FbId:     fb_id,
+		Name:     name,
+		FbSecret: hashed_secret,
+	}
+
+	db.Save(&fbprofile)
+	return ""
+}
+
+func haveFacebookProfile(user_id int64) bool {
+	var fbprofile FacebookProfile
+	db.Where("user_id = ?", user_id).First(&fbprofile)
+	if fbprofile.UserId == user_id {
+		return true
+	} else {
+		return false
+	}
+}
+
+func refreshToken(login, token, method string) (string, string) {
+	user := authUser(login, token, method)
+	if user.Login != "" {
 		tokenString := time.Now().Format("200601021504051234") + "ololo"
-		authToken := createHash(tokenString + email)
+		authToken := createHash(tokenString + login)
 		refreshToken := createHash(tokenString)
 		hashedRefreshToken := createHash(refreshToken)
 		user.AuthToken = authToken
@@ -181,7 +260,7 @@ func refreshToken(email, token, method string) (string, string) {
 			authToken, refreshToken)
 		return response, ""
 	} else {
-		response := fmt.Sprintf("{\"error\": \"Wrong email or %s\"}", method)
+		response := fmt.Sprintf("{\"error\": \"Wrong login or %s\"}", method)
 		return response, "error"
 	}
 }
@@ -496,24 +575,42 @@ func getExpiredFollowingGcmRegIds(user *User) []string {
 
 }
 
-func authUser(email string, token string, method string) *User {
+func getUserForAuth(login, method string) (*User, *FacebookProfile) {
 	var user User
-	var err error
-	db.Where("email = ?", email).First(&user)
+	var fbprofile FacebookProfile
+	switch method {
+	case "refresh_token", "auth_token", "password":
+		db.Where("login = ?", login).First(&user)
+	case "facebook":
+		db.Where("fb_id = ?", login).First(&fbprofile)
+		db.Where("id = ?", fbprofile.UserId).First(&user)
+	}
+	return &user, &fbprofile
+}
+
+func authUser(login string, token string, method string) *User {
+	user, fbprofile := getUserForAuth(login, method)
+	if user.Id == 0 {
+		return &User{}
+	}
+
+	var comparation bool = false
 
 	switch method {
 	case "refresh_token":
-		err = bcrypt.CompareHashAndPassword([]byte(user.RefreshToken), []byte(token))
+		comparation = compareHashAndPassword(user.RefreshToken, token)
 	case "auth_token":
-		if user.AuthToken != token {
-			err = errors.New("wrong token")
+		if user.AuthToken == token {
+			comparation = true
 		}
 	case "password":
-		err = bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(token))
+		comparation = compareHashAndPassword(user.Password, token)
+	case "facebook":
+		comparation = compareHashAndPassword(fbprofile.FbSecret, token)
 	}
 
-	if err == nil {
-		return &user
+	if comparation {
+		return user
 	} else {
 		return &User{}
 	}

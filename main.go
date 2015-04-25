@@ -18,11 +18,52 @@ var config *Config
 
 // create new user
 // требуется написать проверку строк с паролем, почтой и логином
+func createUserSimpleHandler(w http.ResponseWriter, r *http.Request, body []byte, login, password string) {
+	reqlog := initRequestLog("CreateSimpleUser", r.URL.Path+"?"+r.URL.RawQuery, r.Host, r.Method)
+	reqlog.Login = login
+	reqlog.RequestBody = string(body)
+	if userLoginExists(login) {
+		reqlog.ResponseCode = 403
+		reqlog.ResponseBody = `{"error": "Login used"}`
+	} else {
+		reqlog.ResponseBody = createSimpleUser(login, password)
+		reqlog.ResponseCode = 201
+	}
+	finishRequest(reqlog, w)
+}
+
+func createUserFacebookHandler(w http.ResponseWriter, r *http.Request, body []byte, login, fb_secret string) {
+	type FacebookUserBody struct {
+		FbId   string `json:"fb_id"`
+		FbName string `json:"fb_name"`
+	}
+	reqlog := initRequestLog("CreateFacebookUser", r.URL.Path+"?"+r.URL.RawQuery, r.Host, r.Method)
+	reqlog.Login = login
+	reqlog.RequestBody = string(body)
+	var parsed_body FacebookUserBody
+	err := json.Unmarshal(body, &parsed_body)
+	panicErr(err, "Bad json")
+
+	if fbProfileExists(parsed_body.FbId) || userLoginExists(login) {
+		reqlog.ResponseCode = 403
+		reqlog.ResponseBody = `{"error": "Login or FbId used"}`
+	} else {
+		response, err := createFacebookUser(login, fb_secret, parsed_body.FbId, parsed_body.FbName)
+		reqlog.ResponseBody = response
+		if err == "" {
+			reqlog.ResponseCode = 201
+		} else {
+			reqlog.ResponseCode = 403
+		}
+	}
+	finishRequest(reqlog, w)
+}
+
 func createUserHandler(w http.ResponseWriter, r *http.Request) {
 	type CreateUserBody struct {
 		Login    string `json:"login"`
-		Email    string `json:"email"`
 		Password string `json:"password"`
+		FbSecret string `json:"fb_secret"`
 	}
 
 	body, err := ioutil.ReadAll(r.Body)
@@ -30,29 +71,26 @@ func createUserHandler(w http.ResponseWriter, r *http.Request) {
 
 	var parsed_body CreateUserBody
 	err = json.Unmarshal(body, &parsed_body)
-	fmt.Printf("POST /users \r\n")
-	reqlog := initRequestLog("CreateUser", r.URL.Path+"?"+r.URL.RawQuery, r.Host, r.Method)
-	reqlog.Login = parsed_body.Login
-	reqlog.RequestBody = string(body)
-	if userLoginExists(parsed_body.Login) {
-		reqlog.ResponseCode = 403
-		reqlog.ResponseBody = `{"error": "Login used"}`
-	} else if userEmailExists(parsed_body.Email) {
-		reqlog.ResponseCode = 403
-		reqlog.ResponseBody = `{"error": "Email used"}`
-	} else {
-		reqlog.ResponseBody = createUser(parsed_body.Email, parsed_body.Login, parsed_body.Password)
-		reqlog.ResponseCode = 201
+	if parsed_body.Password != "" {
+		createUserSimpleHandler(w, r, body, parsed_body.Login, parsed_body.Password)
+		return
 	}
-	finishRequest(reqlog, w)
+
+	if parsed_body.FbSecret != "" {
+		createUserFacebookHandler(w, r, body, parsed_body.Login, parsed_body.FbSecret)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.WriteHeader(400)
+	fmt.Fprintf(w, "Wrong request")
+
 }
 
 func checkUserHandler(w http.ResponseWriter, r *http.Request) {
-	fmt.Printf("GET %s?%s \r\n", r.URL.Path, r.URL.RawQuery)
 	reqlog := initRequestLog("CheckUser", r.URL.Path+"?"+r.URL.RawQuery, r.Host, r.Method)
 	login := r.URL.Query().Get("login")
-	email := r.URL.Query().Get("email")
-	if userLoginExists(login) || userEmailExists(email) {
+	if userLoginExists(login) {
 		reqlog.ResponseCode = 200
 	} else {
 		reqlog.ResponseCode = 404
@@ -61,12 +99,11 @@ func checkUserHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func postFollowingsHandler(w http.ResponseWriter, r *http.Request) {
-	fmt.Printf("POST /followings/{login} \r\n")
 	reqlog := initRequestLog("PostFollowings", r.URL.Path+"?"+r.URL.RawQuery, r.Host, r.Method)
 	vars := mux.Vars(r)
 	login := vars["login"]
 	user := authRequest(r)
-	if user.Email != "" {
+	if user.Login != "" {
 		reqlog.Login = user.Login
 		var strerr string
 		reqlog.ResponseBody, strerr = postFollowings(user.Id, login)
@@ -86,10 +123,9 @@ func postFollowingsHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func getFollowersHandler(w http.ResponseWriter, r *http.Request) {
-	fmt.Printf("GET /followers \r\n")
 	reqlog := initRequestLog("GetFollowers", r.URL.Path+"?"+r.URL.RawQuery, r.Host, r.Method)
 	user := authRequest(r)
-	if user.Email != "" {
+	if user.Login != "" {
 		reqlog.Login = user.Login
 		var strerr string
 		reqlog.ResponseBody, strerr = getFollowers(user.Id)
@@ -107,10 +143,9 @@ func getFollowersHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func getFollowingsHandler(w http.ResponseWriter, r *http.Request) {
-	fmt.Printf("GET /followings \r\n")
 	reqlog := initRequestLog("GetFollowings", r.URL.Path+"?"+r.URL.RawQuery, r.Host, r.Method)
 	user := authRequest(r)
-	if user.Email != "" {
+	if user.Login != "" {
 		reqlog.Login = user.Login
 		var strerr string
 		reqlog.ResponseBody, strerr = getFollowings(user.Id)
@@ -128,12 +163,11 @@ func getFollowingsHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func postFollowersHandler(w http.ResponseWriter, r *http.Request) {
-	fmt.Printf("POST /follower/{login} \r\n")
 	reqlog := initRequestLog("PostFollowers", r.URL.Path+"?"+r.URL.RawQuery, r.Host, r.Method)
 	user := authRequest(r)
 	vars := mux.Vars(r)
 	login := vars["login"]
-	if user.Email != "" {
+	if user.Login != "" {
 		reqlog.Login = user.Login
 		var strerr string
 		reqlog.ResponseBody, strerr = postFollowers(user.Id, login)
@@ -151,12 +185,11 @@ func postFollowersHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func deleteFollowersHandler(w http.ResponseWriter, r *http.Request) {
-	fmt.Printf("DELETE /follower/{login} \r\n")
 	reqlog := initRequestLog("DeleteFollowers", r.URL.Path+"?"+r.URL.RawQuery, r.Host, r.Method)
 	user := authRequest(r)
 	vars := mux.Vars(r)
 	login := vars["login"]
-	if user.Email != "" {
+	if user.Login != "" {
 		reqlog.Login = user.Login
 		var strerr string
 		reqlog.ResponseBody, strerr = deleteFollowers(user.Id, login)
@@ -174,12 +207,11 @@ func deleteFollowersHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func deleteFollowingsHandler(w http.ResponseWriter, r *http.Request) {
-	fmt.Printf("DELETE /followings/{login} \r\n")
 	reqlog := initRequestLog("DeleteFollowings", r.URL.Path+"?"+r.URL.RawQuery, r.Host, r.Method)
 	user := authRequest(r)
 	vars := mux.Vars(r)
 	login := vars["login"]
-	if user.Email != "" {
+	if user.Login != "" {
 		reqlog.Login = user.Login
 		var strerr string
 		reqlog.ResponseBody, strerr = deleteFollowings(user.Id, login)
@@ -198,9 +230,8 @@ func deleteFollowingsHandler(w http.ResponseWriter, r *http.Request) {
 
 func askFollowingsLocationsHandler(w http.ResponseWriter, r *http.Request) {
 	reqlog := initRequestLog("UpdateFollowings", r.URL.Path+"?"+r.URL.RawQuery, r.Host, r.Method)
-	fmt.Printf("GET /followings/update_locations \r\n")
 	user := authRequest(r)
-	if user.Email != "" {
+	if user.Login != "" {
 		reqlog.Login = user.Login
 		var strerr string
 		reqlog.ResponseBody, strerr = askFollowingsLocationsGCM(user)
@@ -227,11 +258,10 @@ func postLocationsHandler(w http.ResponseWriter, r *http.Request) {
 		Accuracy   float32 `json:"accuracy"`
 	}
 	reqlog := initRequestLog("PostLocations", r.URL.Path+"?"+r.URL.RawQuery, r.Host, r.Method)
-	fmt.Printf("POST /locations \r\n")
 	body, err := ioutil.ReadAll(r.Body)
 	reqlog.RequestBody = string(body)
 	user := authRequest(r)
-	if user.Email != "" {
+	if user.Login != "" {
 		reqlog.Login = user.Login
 		panicErr(err, "Error read request body")
 		var body_struct Body
@@ -254,9 +284,8 @@ func postLocationsHandler(w http.ResponseWriter, r *http.Request) {
 
 func getLocationsHandler(w http.ResponseWriter, r *http.Request) {
 	reqlog := initRequestLog("GetLocations", r.URL.Path+"?"+r.URL.RawQuery, r.Host, r.Method)
-	fmt.Printf("GET /locations \r\n")
 	user := authRequest(r)
-	if user.Email != "" {
+	if user.Login != "" {
 		reqlog.Login = user.Login
 		var strerr string
 		reqlog.ResponseBody, strerr = getLocations(user.Id)
@@ -289,7 +318,6 @@ func getLogsHandler(w http.ResponseWriter, r *http.Request) {
 		CreatedAt    string
 	}
 	login := r.URL.Query().Get("login")
-	fmt.Printf("GET /logs \r\n")
 	logs := getLogs(login)
 	h, _ := template.ParseFiles("./templates/logs/header.html")
 	h.Execute(w, nil)
@@ -322,7 +350,6 @@ func getGcmLogsHandler(w http.ResponseWriter, r *http.Request) {
 		CreatedAt    string
 	}
 	login := r.URL.Query().Get("login")
-	fmt.Printf("GET /gcmlogs \r\n")
 	logs := getGcmLogs(login)
 	h, _ := template.ParseFiles("./templates/gcmlogs/header.html")
 	h.Execute(w, nil)
@@ -343,9 +370,8 @@ func getGcmLogsHandler(w http.ResponseWriter, r *http.Request) {
 
 func findUserByLettersHandler(w http.ResponseWriter, r *http.Request) {
 	reqlog := initRequestLog("FindUserByLetters", r.URL.Path+"?"+r.URL.RawQuery, r.Host, r.Method)
-	fmt.Printf("GET /uses/{letters} \r\n")
 	user := authRequest(r)
-	if user.Email != "" {
+	if user.Login != "" {
 		vars := mux.Vars(r)
 		letters := vars["letters"]
 		reqlog.Login = user.Login
@@ -377,12 +403,11 @@ func postDevicesHandler(w http.ResponseWriter, r *http.Request) {
 		Model        string `json:"model"`
 	}
 	reqlog := initRequestLog("PostDevices", r.URL.Path+"?"+r.URL.RawQuery, r.Host, r.Method)
-	fmt.Printf("POST /devices \r\n")
 	body, err := ioutil.ReadAll(r.Body)
 	panicErr(err, "Error read request body")
 	reqlog.RequestBody = string(body)
 	user := authRequest(r)
-	if user.Email != "" {
+	if user.Login != "" {
 		reqlog.Login = user.Login
 		var body_struct Body
 		err = json.Unmarshal(body, &body_struct)
@@ -407,9 +432,8 @@ func postDevicesHandler(w http.ResponseWriter, r *http.Request) {
 
 func getDevicesHandler(w http.ResponseWriter, r *http.Request) {
 	reqlog := initRequestLog("GetDevices", r.URL.Path+"?"+r.URL.RawQuery, r.Host, r.Method)
-	fmt.Printf("GET /devices \r\n")
 	user := authRequest(r)
-	if user.Email != "" {
+	if user.Login != "" {
 		reqlog.Login = user.Login
 		var strerr string
 		reqlog.ResponseBody, strerr = getDevices(user.Id)
@@ -431,12 +455,12 @@ func deleteDevicesHandler(w http.ResponseWriter, r *http.Request) {
 	type Body struct {
 		DeviceCode string `json:"device_code"`
 	}
-	fmt.Printf("DELETE /devices \r\n")
 	reqlog := initRequestLog("DeleteDevices", r.URL.Path+"?"+r.URL.RawQuery, r.Host, r.Method)
 	user := authRequest(r)
 	body, err := ioutil.ReadAll(r.Body)
+	panicErr(err, "Error read request body")
 	reqlog.RequestBody = string(body)
-	if user.Email != "" {
+	if user.Login != "" {
 		reqlog.Login = user.Login
 		var body_struct Body
 		err = json.Unmarshal(body, &body_struct)
@@ -457,12 +481,20 @@ func deleteDevicesHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func getSessionHandler(w http.ResponseWriter, r *http.Request) {
-	fmt.Printf("GET /session \r\n")
 	reqlog := initRequestLog("GetSession", r.URL.Path+"?"+r.URL.RawQuery, r.Host, r.Method)
-	email := r.URL.Query().Get("email")
+	var user *User
+	login := r.URL.Query().Get("login")
 	password := r.URL.Query().Get("password")
-	user := authUser(email, password, "password")
-	if user.Email != "" {
+	if login != "" && password != "" {
+		user = authUser(login, password, "password")
+	}
+	fb_id := r.URL.Query().Get("fb_id")
+	fb_secret := r.URL.Query().Get("fb_secret")
+	if fb_id != "" && fb_secret != "" {
+		user = authUser(fb_id, fb_secret, "facebook")
+	}
+
+	if user.Login != "" {
 		reqlog.Login = user.Login
 		reqlog.ResponseBody = fmt.Sprintf(`{"auth_token": "%s"}`, user.AuthToken)
 		reqlog.ResponseCode = 200
@@ -475,11 +507,12 @@ func getSessionHandler(w http.ResponseWriter, r *http.Request) {
 
 func postSessionHandler(w http.ResponseWriter, r *http.Request) {
 	type refreshTokenBody struct {
-		Email        string `json:"email"`
+		Login        string `json:"login"`
+		FbId         string `json:"fb_id"`
+		FbSecret     string `json:"fb_secret"`
 		Password     string `json:"password"`
 		RefreshToken string `json:"refresh_token"`
 	}
-	fmt.Printf("POST /session \r\n")
 	reqlog := initRequestLog("PostSession", r.URL.Path+"?"+r.URL.RawQuery, r.Host, r.Method)
 	body, err := ioutil.ReadAll(r.Body)
 	panicErr(err, "Error read request body")
@@ -487,18 +520,27 @@ func postSessionHandler(w http.ResponseWriter, r *http.Request) {
 	var rbt refreshTokenBody
 	var strerr string
 	err = json.Unmarshal(body, &rbt)
-	if rbt.Email != "" && rbt.RefreshToken != "" {
-		reqlog.Login = rbt.Email
-		reqlog.ResponseBody, strerr = refreshToken(rbt.Email, rbt.RefreshToken, "refresh_token")
+	if rbt.Login != "" && rbt.RefreshToken != "" {
+		reqlog.Login = rbt.Login
+		reqlog.ResponseBody, strerr = refreshToken(rbt.Login, rbt.RefreshToken, "refresh_token")
 		if strerr == "" {
 			reqlog.ResponseCode = 200
 		} else {
 			reqlog.ResponseCode = 403
 			reqlog.ActionsLog = strerr
 		}
-	} else if rbt.Email != "" && rbt.Password != "" {
-		reqlog.Login = rbt.Email
-		reqlog.ResponseBody, strerr = refreshToken(rbt.Email, rbt.Password, "password")
+	} else if rbt.Login != "" && rbt.Password != "" {
+		reqlog.Login = rbt.Login
+		reqlog.ResponseBody, strerr = refreshToken(rbt.Login, rbt.Password, "password")
+		if strerr == "" {
+			reqlog.ResponseCode = 200
+		} else {
+			reqlog.ResponseCode = 403
+			reqlog.ActionsLog = strerr
+		}
+	} else if rbt.FbId != "" && rbt.FbSecret != "" {
+		reqlog.Login = "facebook user"
+		reqlog.ResponseBody, strerr = refreshToken(rbt.FbId, rbt.FbSecret, "facebook")
 		if strerr == "" {
 			reqlog.ResponseCode = 200
 		} else {
@@ -518,62 +560,10 @@ func main() {
 	config = load_config("./config.yaml")
 	db = db_connect()
 	//init_database(db)
-	r := mux.NewRouter()
-	// 1. Получить координаты
-	r.HandleFunc("/locations", getLocationsHandler).
-		Methods("GET")
-	// 2. Обновить свои координаты
-	r.HandleFunc("/locations", postLocationsHandler).
-		Methods("POST")
-	// 3. Создание нового пользователя
-	r.HandleFunc("/users", createUserHandler).
-		Methods("POST")
-	// 4. Проверка существования пользователя
-	r.HandleFunc("/users/check", checkUserHandler).
-		Methods("GET")
-	// 5. Поиск пользователя по первым буквам логина
-	r.HandleFunc("/users/find/{letters}", findUserByLettersHandler).
-		Methods("GET")
-	r.HandleFunc("/session", postSessionHandler).
-		Methods("POST")
-	r.HandleFunc("/session", getSessionHandler).
-		Methods("GET")
-	// 7. Создание новой подписки
-	r.HandleFunc("/followings/{login}", postFollowingsHandler).
-		Methods("POST")
-	// 8. Удалить или отменить свою подписку
-	r.HandleFunc("/followings/{login}", deleteFollowingsHandler).
-		Methods("DELETE")
-	r.HandleFunc("/followings/update_locations", askFollowingsLocationsHandler).
-		Methods("GET")
-	// 9. Получить мои подписки
-	r.HandleFunc("/followings", getFollowingsHandler).
-		Methods("GET")
-	// 10. Подтвердить подписчика
-	r.HandleFunc("/followers/{login}", postFollowersHandler).
-		Methods("POST")
-	// 11. Удалить подписчика
-	r.HandleFunc("/followers/{login}", deleteFollowersHandler).
-		Methods("DELETE")
-	// 12. Получить список подписчиков
-	r.HandleFunc("/followers", getFollowersHandler).
-		Methods("GET")
-
-	r.HandleFunc("/devices", getDevicesHandler).
-		Methods("GET")
-	r.HandleFunc("/devices", postDevicesHandler).
-		Methods("POST")
-	r.HandleFunc("/devices", deleteDevicesHandler).
-		Methods("DELETE")
-	// недокументированные или временные запросы
-	r.HandleFunc("/logs", getLogsHandler).
-		Methods("GET")
-	r.HandleFunc("/gcmlogs", getGcmLogsHandler).
-		Methods("GET")
-
-	r.Headers("X-Requested-With", "XMLHttpRequest")
+	router := NewRouter()
+	router.Headers("X-Requested-With", "XMLHttpRequest")
 	//r.PathPrefix("/assets/css/").Handler(http.StripPrefix("/assets/css/", http.FileServer(http.Dir("./assets/css/"))))
-	http.Handle("/", r)
+	http.Handle("/", router)
 	log.Fatal(http.ListenAndServeTLS(":8080", "./cert.pem", "./key.pem", nil))
 }
 
@@ -584,9 +574,9 @@ func panicErr(err error, message string) {
 }
 
 func authRequest(r *http.Request) *User {
-	email := r.URL.Query().Get("email")
+	login := r.URL.Query().Get("login")
 	auth_token := r.URL.Query().Get("auth_token")
-	return authUser(email, auth_token, "auth_token")
+	return authUser(login, auth_token, "auth_token")
 }
 
 func finishRequest(reqlog *RequestLog, w http.ResponseWriter) {
